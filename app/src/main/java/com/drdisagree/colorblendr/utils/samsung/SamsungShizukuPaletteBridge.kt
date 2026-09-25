@@ -7,7 +7,11 @@ import android.os.SystemClock
 import android.util.Log
 import com.drdisagree.colorblendr.BuildConfig
 import com.drdisagree.colorblendr.ColorBlendr.Companion.appContext
-import com.drdisagree.colorblendr.data.common.Utilities.*
+import com.drdisagree.colorblendr.data.common.Utilities.customColorEnabled
+import com.drdisagree.colorblendr.data.common.Utilities.getCurrentMonetStyle
+import com.drdisagree.colorblendr.data.common.Utilities.getSeedColorValue
+import com.drdisagree.colorblendr.data.common.Utilities.getWallpaperColorList
+import com.drdisagree.colorblendr.data.common.Utilities.isShizukuMode
 import com.drdisagree.colorblendr.data.domain.PreviewController
 import com.drdisagree.colorblendr.data.domain.RefreshCoordinator
 import com.drdisagree.colorblendr.provider.ShizukuConnectionProvider
