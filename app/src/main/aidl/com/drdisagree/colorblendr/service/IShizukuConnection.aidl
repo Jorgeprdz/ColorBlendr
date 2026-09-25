@@ -7,4 +7,6 @@ interface IShizukuConnection {
     String removeFabricatedColors() = 3;
     String getCurrentSettings() = 4;
     String run(String command) = 5;
+    // [exit code, stdout, stderr]. Append-only to preserve existing transaction IDs.
+    String[] runChecked(String command) = 6;
 }

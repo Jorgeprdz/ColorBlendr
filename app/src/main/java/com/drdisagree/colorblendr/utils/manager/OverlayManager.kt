@@ -45,11 +45,18 @@ import com.drdisagree.colorblendr.utils.fabricated.FabricatedUtil.assignPerAppCo
 import com.drdisagree.colorblendr.utils.fabricated.FabricatedUtil.generateSurfaceEffectColors
 import com.drdisagree.colorblendr.utils.shizuku.ShizukuUtil
 import com.drdisagree.colorblendr.utils.wifiadb.WifiAdbShell
+import com.drdisagree.colorblendr.utils.samsung.SamsungShizukuPaletteBridge
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 @Suppress("unused")
 object OverlayManager {
 
     private const val TAG = "OverlayManager"
+    private val applyMutex = Mutex()
     private lateinit var mRootConnection: IRootConnection
     private lateinit var mShizukuConnection: IShizukuConnection
 
@@ -182,7 +189,15 @@ object OverlayManager {
         }
     }
 
-    fun applyFabricatedColors(): Boolean {
+    suspend fun applyFabricatedColors(): Boolean = withContext(Dispatchers.IO) {
+        applyMutex.withLock {
+            SamsungShizukuPaletteBridge.trace("T3 applyFabricatedColors starts")
+            try { applyFabricatedColorsInternal() }
+            finally { SamsungShizukuPaletteBridge.trace("applyFabricatedColors ends") }
+        }
+    }
+
+    private suspend fun applyFabricatedColorsInternal(): Boolean {
         if (!isThemingEnabled() && !isShizukuThemingEnabled() && !isWirelessAdbThemingEnabled()) return true
 
         applyFabricatedColorsNonRoot()?.let { return it }
@@ -330,7 +345,11 @@ object OverlayManager {
         registerFabricatedOverlay(getFabricatedColorsPerApp(packageName, paletteLight, paletteDark))
     }
 
-    fun removeFabricatedColors(): Boolean {
+    suspend fun removeFabricatedColors(): Boolean = withContext(Dispatchers.IO) {
+        applyMutex.withLock { removeFabricatedColorsInternal() }
+    }
+
+    private suspend fun removeFabricatedColorsInternal(): Boolean {
         removeFabricatedColorsNonRoot()?.let { return it }
 
         return ArrayList<String>().apply {
@@ -385,7 +404,7 @@ object OverlayManager {
         }
     }
 
-    private fun applyFabricatedColorsNonRoot(): Boolean? {
+    private suspend fun applyFabricatedColorsNonRoot(): Boolean? {
         val isShizukuMode = isShizukuMode()
         val isWirelessAdbMode = isWirelessAdbMode()
 
@@ -402,16 +421,19 @@ object OverlayManager {
             }
 
             try {
+                SamsungShizukuPaletteBridge.applyIfSupported(mShizukuConnection)?.let { return it }
                 val currentSettings = mShizukuConnection.currentSettings
 
                 if (themeJson.isNotEmpty()) {
                     val output =
                         mShizukuConnection.run("cmd overlay list | grep \"$samsungPaletteName\"")
-                    if (output.contains(samsungPaletteName)) {
-                        val isEnabled = output.contains("[x]")
-                        mShizukuConnection.run("cmd overlay ${if (isEnabled) "disable" else "enable"} $samsungPaletteName")
+                    if (output.contains(samsungPaletteName) && !output.contains("[x]")) {
+                        // Never alternate Samsung G Monet into a disabled terminal state.
+                        val result = mShizukuConnection.runChecked("cmd overlay enable $samsungPaletteName")
+                        check(result[0] == "0") { result[2] }
                     }
 
+                    SamsungShizukuPaletteBridge.trace("T6 fallback secure theme JSON write")
                     // Null on success, shell error message on failure.
                     mShizukuConnection.applyFabricatedColors(
                         MiscUtil.mergeJsonStrings(currentSettings, themeJson)
@@ -423,6 +445,8 @@ object OverlayManager {
                         success = false
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "applyFabricatedColorsNonRoot: ", e)
                 reportError(overlayError(e))
@@ -480,7 +504,7 @@ object OverlayManager {
         return success
     }
 
-    private fun removeFabricatedColorsNonRoot(): Boolean? {
+    private suspend fun removeFabricatedColorsNonRoot(): Boolean? {
         val isShizukuMode = isShizukuMode()
         val isWirelessAdbMode = isWirelessAdbMode()
 
@@ -496,12 +520,13 @@ object OverlayManager {
             }
 
             try {
+                SamsungShizukuPaletteBridge.removeIfOwned(mShizukuConnection)?.let { return it }
                 if (mShizukuConnection
                         .run("cmd overlay list | grep \"$samsungPaletteName\"")
                         .contains(samsungPaletteName)
                 ) {
-                    mShizukuConnection.run("cmd overlay disable $samsungPaletteName")
-                    mShizukuConnection.run("cmd overlay enable $samsungPaletteName")
+                    val result = mShizukuConnection.runChecked("cmd overlay enable $samsungPaletteName")
+                    check(result[0] == "0") { result[2] }
                 }
 
                 // Null on success, shell error message on failure.
@@ -512,6 +537,8 @@ object OverlayManager {
                     )
                     success = false
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "removeFabricatedColorsNonRoot: ", e)
                 reportError(overlayError(e))

@@ -15,12 +15,14 @@ import androidx.core.graphics.withClip
 import com.drdisagree.colorblendr.ColorBlendr.Companion.appContext
 import com.drdisagree.colorblendr.data.common.Constant
 import com.drdisagree.colorblendr.data.common.Utilities.customColorEnabled
+import com.drdisagree.colorblendr.data.common.Utilities.isShizukuMode
 import com.drdisagree.colorblendr.data.common.Utilities.getWallpaperColorJson
 import com.drdisagree.colorblendr.data.common.Utilities.setSeedColorValue
 import com.drdisagree.colorblendr.data.common.Utilities.setWallpaperColorJson
 import com.drdisagree.colorblendr.service.BroadcastListener
 import com.drdisagree.colorblendr.utils.app.AppUtil
 import com.drdisagree.colorblendr.utils.colors.ColorUtil
+import com.drdisagree.colorblendr.utils.samsung.SamsungShizukuPaletteBridge
 import com.drdisagree.materialcolorutilities.quantize.QuantizerCelebi
 import com.drdisagree.materialcolorutilities.score.Score
 import kotlinx.coroutines.Dispatchers
@@ -35,10 +37,46 @@ object WallpaperColorUtil {
     private const val MAX_BITMAP_SIZE = 112
     private const val MAX_WALLPAPER_EXTRACTION_AREA = MAX_BITMAP_SIZE * MAX_BITMAP_SIZE
 
+    /** Provenance-sensitive Samsung path: never returns a framework Monet fallback. */
+    suspend fun getWallpaperColorsFromSource(context: Context): ArrayList<Int>? =
+        withContext(Dispatchers.IO) {
+            try {
+                val manager = WallpaperManager.getInstance(context)
+                if (manager.wallpaperInfo != null) {
+                    manager.getWallpaperColors(WallpaperManager.FLAG_SYSTEM)?.let { colors ->
+                        arrayListOf(colors.primaryColor.toArgb()).apply {
+                            colors.secondaryColor?.let { add(it.toArgb()) }
+                            colors.tertiaryColor?.let { add(it.toArgb()) }
+                        }
+                    }
+                } else {
+                    manager.getWallpaperFile(WallpaperManager.FLAG_SYSTEM)?.use { file ->
+                        // Decode bounds first so a full-resolution wallpaper is never allocated.
+                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeFileDescriptor(file.fileDescriptor, null, bounds)
+                        val options = BitmapFactory.Options().apply {
+                            inSampleSize = 1
+                            while (bounds.outWidth / inSampleSize > SMALL_SIDE * 2 ||
+                                bounds.outHeight / inSampleSize > SMALL_SIDE * 2) inSampleSize *= 2
+                        }
+                        BitmapFactory.decodeFileDescriptor(file.fileDescriptor, null, options)
+                            ?.extractColors(allowFrameworkFallback = false)?.takeIf { it.isNotEmpty() }
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) {
+                Log.d(TAG, "Wallpaper source unavailable", e)
+                null
+            }
+        }
+
     suspend fun updateWallpaperColorList(context: Context) {
         if (!AppUtil.permissionsGranted(context)) return
 
-        val wallpaperColors = getWallpaperColors(context)
+        val wallpaperColors = if (SamsungShizukuPaletteBridge.isSamsungDevice() && isShizukuMode()) {
+            // Activity recreation after SemWT must not replace the seed with framework fallback.
+            getWallpaperColorsFromSource(context) ?: return
+        } else getWallpaperColors(context)
         val currentWallpaperColors = Constant.GSON.toJson(wallpaperColors)
 
         if (getWallpaperColorJson() != currentWallpaperColors) {
@@ -122,8 +160,9 @@ object WallpaperColorUtil {
         return Size(newWidth, newHeight)
     }
 
-    private fun Bitmap?.extractColors(): ArrayList<Int> {
-        var bitmapTemp = this ?: return ColorUtil.monetAccentColors
+    private fun Bitmap?.extractColors(allowFrameworkFallback: Boolean = true): ArrayList<Int> {
+        fun fallback() = if (allowFrameworkFallback) ColorUtil.monetAccentColors else arrayListOf<Int>()
+        var bitmapTemp = this ?: return fallback()
 
         val bitmapArea = bitmapTemp.width * bitmapTemp.height
         if (bitmapArea > MAX_WALLPAPER_EXTRACTION_AREA) {
@@ -144,7 +183,7 @@ object WallpaperColorUtil {
             Score.score(QuantizerCelebi.quantize(pixels, 128), 12)
         )
 
-        return if (wallpaperColors.isEmpty()) ColorUtil.monetAccentColors else wallpaperColors
+        return if (wallpaperColors.isEmpty()) fallback() else wallpaperColors
     }
 
     private fun Drawable.toBitmap(): Bitmap {

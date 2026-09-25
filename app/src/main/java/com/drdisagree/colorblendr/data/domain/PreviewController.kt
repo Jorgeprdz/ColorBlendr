@@ -23,6 +23,9 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import com.drdisagree.colorblendr.utils.samsung.SamsungShizukuPaletteBridge
 
 // Defers user color/setting selections: changes are staged in memory (never
 // persisted) and only restyle the in-app theme, until the user applies them —
@@ -42,6 +45,7 @@ object PreviewController {
     val previewColors = _previewColors.asStateFlow()
 
     private val _isApplying = MutableStateFlow(false)
+    private val commitMutex = Mutex()
     val isApplying = _isApplying.asStateFlow()
 
     val isPreviewActive: Boolean
@@ -100,24 +104,29 @@ object PreviewController {
     }
 
     fun applyChanges() {
+        SamsungShizukuPaletteBridge.trace("T0 user Apply")
         controllerScope.launch {
-            _isApplying.value = true
-            try {
-                Prefs.commitStaged()
-                updateColorAppliedTimestamp()
-                applyFabricatedColors()
+            commitMutex.withLock {
+                _isApplying.value = true
+                try {
+                    Prefs.commitStaged()
+                    SamsungShizukuPaletteBridge.trace("T1 commitStaged")
+                    updateColorAppliedTimestamp()
+                    SamsungShizukuPaletteBridge.trace("T2 monetLastUpdated")
+                    applyFabricatedColors()
 
-                // Count the apply if this preview came from a community
-                // creation; server dedupes per device.
-                CommunityThemeApplier.pendingCreationId?.let { creationId ->
-                    CommunityThemeApplier.pendingCreationId = null
-                    CommunityVotes.reportApply(creationId)
+                    // Count the apply if this preview came from a community
+                    // creation; server dedupes per device.
+                    CommunityThemeApplier.pendingCreationId?.let { creationId ->
+                        CommunityThemeApplier.pendingCreationId = null
+                        CommunityVotes.reportApply(creationId)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error applying preview colors", e)
+                } finally {
+                    _previewColors.value = null
+                    _isApplying.value = false
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error applying preview colors", e)
-            } finally {
-                _previewColors.value = null
-                _isApplying.value = false
             }
         }
     }
@@ -128,21 +137,25 @@ object PreviewController {
         }
     }
 
+    suspend fun awaitApplyCompletion() { commitMutex.withLock { } }
+
     // Drops any active preview, then runs an out-of-band apply (e.g. restoring
     // a just-updated style) with the same "applying" dialog + overlay push
     // applyChanges shows.
     fun reapply(prepare: suspend () -> Unit) {
         controllerScope.launch {
-            _isApplying.value = true
-            try {
-                abandonPreview()
-                prepare()
-                updateColorAppliedTimestamp()
-                applyFabricatedColors()
-            } catch (e: Exception) {
-                Log.e(TAG, "Error reapplying colors", e)
-            } finally {
-                _isApplying.value = false
+            commitMutex.withLock {
+                _isApplying.value = true
+                try {
+                    abandonPreview()
+                    prepare()
+                    updateColorAppliedTimestamp()
+                    applyFabricatedColors()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error reapplying colors", e)
+                } finally {
+                    _isApplying.value = false
+                }
             }
         }
     }

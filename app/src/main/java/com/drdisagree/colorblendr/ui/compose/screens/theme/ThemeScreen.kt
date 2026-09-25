@@ -42,6 +42,9 @@ import com.drdisagree.colorblendr.data.common.Utilities.getBackgroundLightness
 import com.drdisagree.colorblendr.data.common.Utilities.getBackgroundSaturation
 import com.drdisagree.colorblendr.data.common.Utilities.getCurrentMonetStyle
 import com.drdisagree.colorblendr.data.common.Utilities.isRootMode
+import com.drdisagree.colorblendr.data.common.Utilities.isShizukuMode
+import com.drdisagree.colorblendr.utils.samsung.SamsungShizukuPaletteBridge
+import com.drdisagree.colorblendr.utils.samsung.core.PaletteTuningSupport
 import com.drdisagree.colorblendr.data.common.Utilities.pitchBlackThemeEnabled
 import com.drdisagree.colorblendr.data.common.Utilities.resetAccentSaturation
 import com.drdisagree.colorblendr.data.common.Utilities.resetBackgroundLightness
@@ -73,6 +76,12 @@ fun ThemeScreen() {
     val toolbarLifted by remember { derivedStateOf { scrollState.value > 0 } }
     val isDark = isSystemInDarkTheme()
     val rootMode = remember { isRootMode() }
+    val shizukuMode = isShizukuMode()
+    val samsungSupported by SamsungShizukuPaletteBridge.supported.collectAsState()
+    LaunchedEffect(shizukuMode) { SamsungShizukuPaletteBridge.refreshSupport() }
+    val tuningEnabled = PaletteTuningSupport.enabled(
+        rootMode, SamsungShizukuPaletteBridge.isSamsungDevice(), shizukuMode, samsungSupported
+    )
 
     var accentSaturation by rememberPrefState(MONET_ACCENT_SATURATION) { getAccentSaturation() }
     var backgroundSaturation by rememberPrefState(MONET_BACKGROUND_SATURATION) { getBackgroundSaturation() }
@@ -141,7 +150,7 @@ fun ThemeScreen() {
                     ThemeSlider(
                         title = stringResource(R.string.accent_saturation),
                         value = accentSaturation,
-                        enabled = rootMode,
+                        enabled = tuningEnabled,
                         onValueChange = {
                             accentSaturation = it
                             PreviewController.beginPreview()
@@ -157,7 +166,7 @@ fun ThemeScreen() {
                         onReset = {
                             PreviewController.beginPreview()
                             resetCustomStyleIfNotNull()
-                            accentSaturation = 100
+                            accentSaturation = PaletteTuningSupport.DEFAULT
                             resetAccentSaturation()
                             updateColors()
                         }
@@ -165,7 +174,7 @@ fun ThemeScreen() {
                     ThemeSlider(
                         title = stringResource(R.string.background_saturation),
                         value = backgroundSaturation,
-                        enabled = rootMode,
+                        enabled = tuningEnabled,
                         onValueChange = {
                             backgroundSaturation = it
                             PreviewController.beginPreview()
@@ -181,7 +190,7 @@ fun ThemeScreen() {
                         onReset = {
                             PreviewController.beginPreview()
                             resetCustomStyleIfNotNull()
-                            backgroundSaturation = 100
+                            backgroundSaturation = PaletteTuningSupport.DEFAULT
                             resetBackgroundSaturation()
                             updateColors()
                         }
@@ -189,7 +198,7 @@ fun ThemeScreen() {
                     ThemeSlider(
                         title = stringResource(R.string.background_lightness),
                         value = backgroundLightness,
-                        enabled = rootMode,
+                        enabled = tuningEnabled,
                         onValueChange = {
                             backgroundLightness = it
                             PreviewController.beginPreview()
@@ -205,7 +214,7 @@ fun ThemeScreen() {
                         onReset = {
                             PreviewController.beginPreview()
                             resetCustomStyleIfNotNull()
-                            backgroundLightness = 100
+                            backgroundLightness = PaletteTuningSupport.DEFAULT
                             resetBackgroundLightness()
                             updateColors()
                         }
@@ -282,14 +291,14 @@ private fun ThemeSlider(
         value = value,
         onValueChange = onValueChange,
         onValueChangeFinished = onValueChangeFinished,
-        minValue = 0,
-        maxValue = 200,
-        defaultValue = 100,
+        minValue = PaletteTuningSupport.MIN,
+        maxValue = PaletteTuningSupport.MAX,
+        defaultValue = PaletteTuningSupport.DEFAULT,
         onReset = onReset,
         valueFormat = "x",
         isDecimalFormat = true,
         decimalFormat = "#.##",
-        outputScale = 100f,
+        outputScale = PaletteTuningSupport.SCALE,
         enabled = enabled,
         disabledReason = if (!enabled) stringResource(R.string.root_required) else null
     )

@@ -5,7 +5,8 @@ import android.util.Log
 import androidx.annotation.Keep
 import com.drdisagree.colorblendr.data.common.Constant.THEME_CUSTOMIZATION_OVERLAY_PACKAGES
 import com.drdisagree.colorblendr.extension.ThemeOverlayPackage
-import com.topjohnwu.superuser.Shell
+import com.drdisagree.colorblendr.utils.samsung.core.SamsungShell
+import kotlin.concurrent.thread
 import org.json.JSONObject
 import kotlin.system.exitProcess
 
@@ -57,14 +58,14 @@ class ShizukuConnection : IShizukuConnection.Stub {
      *                   be in the format required by the `THEME_CUSTOMIZATION_OVERLAY_PACKAGES` setting.
      */
     override fun applyFabricatedColors(jsonString: String): String? {
-        val result = Shell.cmd(
-            "settings put secure $THEME_CUSTOMIZATION_OVERLAY_PACKAGES '$jsonString'"
-        ).exec()
+        val result = runChecked(
+            "settings put secure $THEME_CUSTOMIZATION_OVERLAY_PACKAGES ${SamsungShell.quote(jsonString)}"
+        )
 
-        return if (result.isSuccess) {
+        return if (result[0] == "0") {
             null
         } else {
-            result.err.joinToString("\n").ifBlank { "Command failed (exit ${result.code})" }
+            result[2].ifBlank { "Command failed (exit ${result[0]})" }
         }
     }
 
@@ -100,9 +101,11 @@ class ShizukuConnection : IShizukuConnection.Stub {
      *         If the settings are not set, an empty JSON object is returned as a string.
      */
     override fun getCurrentSettings(): String {
-        val currentSettings = Shell.cmd(
+        val result = runChecked(
             "settings get secure $THEME_CUSTOMIZATION_OVERLAY_PACKAGES"
-        ).exec().out[0]
+        )
+        check(result[0] == "0") { result[2] }
+        val currentSettings = result[1].trim()
 
         return if (currentSettings == "null") {
             JSONObject().toString()
@@ -122,6 +125,19 @@ class ShizukuConnection : IShizukuConnection.Stub {
      * @return A list of strings representing the lines of the command's standard output.
      */
     override fun run(command: String): String {
-        return Shell.cmd(command).exec().out.joinToString("\n")
+        return runChecked(command)[1]
+    }
+
+    override fun runChecked(command: String): Array<String> {
+        // The Shizuku user service already runs as shell. Never probe for su.
+        val process = ProcessBuilder("sh", "-c", command).start()
+        var stderr = ""
+        val reader = thread(name = "ShizukuCommandStderr") {
+            stderr = process.errorStream.bufferedReader().use { it.readText() }
+        }
+        val stdout = process.inputStream.bufferedReader().use { it.readText() }
+        val code = process.waitFor()
+        reader.join()
+        return arrayOf(code.toString(), stdout.trimEnd('\n'), stderr.trimEnd('\n'))
     }
 }

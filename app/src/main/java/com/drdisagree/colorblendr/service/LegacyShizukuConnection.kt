@@ -4,6 +4,7 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.drdisagree.colorblendr.data.common.Constant.THEME_CUSTOMIZATION_OVERLAY_PACKAGES
 import com.drdisagree.colorblendr.extension.ThemeOverlayPackage
+import com.drdisagree.colorblendr.utils.samsung.core.SamsungShell
 import moe.shizuku.server.IShizukuService
 import org.json.JSONObject
 import rikka.shizuku.Shizuku
@@ -22,7 +23,7 @@ class LegacyShizukuConnection : IShizukuConnection.Stub() {
     override fun exit() {}
 
     override fun applyFabricatedColors(jsonString: String): String? {
-        val result = exec("settings put secure $THEME_CUSTOMIZATION_OVERLAY_PACKAGES '$jsonString'")
+        val result = exec("settings put secure $THEME_CUSTOMIZATION_OVERLAY_PACKAGES ${SamsungShell.quote(jsonString)}")
 
         return if (result.code == 0) {
             null
@@ -54,6 +55,10 @@ class LegacyShizukuConnection : IShizukuConnection.Stub() {
     }
 
     override fun run(command: String): String = exec(command).out
+
+    override fun runChecked(command: String): Array<String> = exec(command).let {
+        arrayOf(it.code.toString(), it.out, it.err)
+    }
 
     private fun exec(command: String): ShellResult {
         val binder = Shizuku.getBinder()

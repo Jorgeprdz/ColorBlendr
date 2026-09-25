@@ -14,6 +14,7 @@ import com.drdisagree.colorblendr.data.common.Utilities.getLastColorAppliedTimes
 import com.drdisagree.colorblendr.data.common.Utilities.getSelectedFabricatedApps
 import com.drdisagree.colorblendr.data.common.Utilities.getWallpaperColorJson
 import com.drdisagree.colorblendr.data.common.Utilities.isRootMode
+import com.drdisagree.colorblendr.data.common.Utilities.isShizukuMode
 import com.drdisagree.colorblendr.data.common.Utilities.isShizukuThemingEnabled
 import com.drdisagree.colorblendr.data.common.Utilities.isThemingEnabled
 import com.drdisagree.colorblendr.data.common.Utilities.isWirelessAdbThemingEnabled
@@ -31,6 +32,7 @@ import com.drdisagree.colorblendr.utils.manager.OverlayManager.applyFabricatedCo
 import com.drdisagree.colorblendr.utils.manager.OverlayManager.applyFabricatedColorsPerApp
 import com.drdisagree.colorblendr.utils.manager.OverlayManager.unregisterFabricatedOverlay
 import com.drdisagree.colorblendr.utils.wallpaper.WallpaperColorUtil.getWallpaperColors
+import com.drdisagree.colorblendr.utils.wallpaper.WallpaperColorUtil.getWallpaperColorsFromSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -38,6 +40,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.time.Duration.Companion.milliseconds
+import com.drdisagree.colorblendr.utils.samsung.SamsungShizukuPaletteBridge
 
 class BroadcastListener : BroadcastReceiver() {
 
@@ -48,6 +51,7 @@ class BroadcastListener : BroadcastReceiver() {
     @Suppress("DEPRECATION")
     override fun onReceive(context: Context, intent: Intent) {
         Log.d(TAG, "Received intent: " + intent.action)
+        SamsungShizukuPaletteBridge.trace("T11 broadcast ${intent.action}")
 
         if (isLastConfigInitialized.not()) {
             lastConfig = Configuration(context.resources.configuration)
@@ -137,8 +141,29 @@ class BroadcastListener : BroadcastReceiver() {
 
     private suspend fun handleWallpaperChanged(context: Context, force: Boolean = false) {
         if (permissionsGranted(context)) {
+            // Check IDs before extraction, whose fallback may contain the old framework
+            // palette. Wallpaper Binder calls and extraction both run away from Main.
+            if (withContext(Dispatchers.IO) {
+                SamsungShizukuPaletteBridge.ignoreUnchangedWallpaper()
+            }) {
+                // Tasker may have queued new tuning for screen-off with the same wallpaper.
+                if (requiresUpdate) {
+                    requiresUpdate = false
+                    validateRootAndUpdateColors(context) { updateAllColors(true) }
+                }
+                return
+            }
             val wallpaperColors = withContext(Dispatchers.IO) {
-                getWallpaperColors(context)
+                if (SamsungShizukuPaletteBridge.isSamsungDevice() && isShizukuMode()) getWallpaperColorsFromSource(context)
+                else getWallpaperColors(context)
+            } ?: run {
+                // Unknown source must not replace the seed with old framework colors.
+                SamsungShizukuPaletteBridge.forgetWallpaperFingerprint()
+                if (requiresUpdate) {
+                    requiresUpdate = false
+                    validateRootAndUpdateColors(context) { updateAllColors(true) }
+                }
+                return
             }
 
             val previousWallpaperColors = getWallpaperColorJson()
@@ -212,10 +237,12 @@ class BroadcastListener : BroadcastReceiver() {
 
     @Synchronized
     private fun updateAllColors(force: Boolean = false) {
+        SamsungShizukuPaletteBridge.trace("T12 updateAllColors force=$force")
         if ((!isThemingEnabled() && !isShizukuThemingEnabled() && !isWirelessAdbThemingEnabled())
             || isWorkMethodUnknown()
             // Never auto-apply while the user is previewing changes.
-            || PreviewController.isPreviewActive
+            || (PreviewController.isPreviewActive &&
+                !(SamsungShizukuPaletteBridge.isSupported() && PreviewController.isApplying.value))
         ) return
 
         if (abs(getLastColorAppliedTimestamp() - System.currentTimeMillis()) >= cooldownTime || force) {
@@ -223,6 +250,9 @@ class BroadcastListener : BroadcastReceiver() {
 
             CoroutineScope(Dispatchers.IO).launch {
                 delay(500.milliseconds)
+                PreviewController.awaitApplyCompletion()
+                if (PreviewController.isPreviewActive) return@launch
+                SamsungShizukuPaletteBridge.trace("T13 broadcast apply")
                 applyFabricatedColors()
             }
         }
