@@ -113,7 +113,12 @@ object PreviewController {
                     SamsungShizukuPaletteBridge.trace("T1 commitStaged")
                     updateColorAppliedTimestamp()
                     SamsungShizukuPaletteBridge.trace("T2 monetLastUpdated")
-                    applyFabricatedColors()
+                    val applied = applyFabricatedColors()
+                    if (!applied && SamsungShizukuPaletteBridge.isSamsungDevice() &&
+                        com.drdisagree.colorblendr.data.common.Utilities.isShizukuMode()) {
+                        SamsungShizukuPaletteBridge.trace("Apply failed; not recording successful community apply")
+                        return@withLock
+                    }
 
                     // Count the apply if this preview came from a community
                     // creation; server dedupes per device.

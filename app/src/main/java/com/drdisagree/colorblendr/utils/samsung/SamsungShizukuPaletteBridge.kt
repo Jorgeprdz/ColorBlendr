@@ -9,6 +9,9 @@ import com.drdisagree.colorblendr.BuildConfig
 import com.drdisagree.colorblendr.ColorBlendr.Companion.appContext
 import com.drdisagree.colorblendr.data.common.Utilities.customColorEnabled
 import com.drdisagree.colorblendr.data.common.Utilities.getCurrentMonetStyle
+import com.drdisagree.colorblendr.data.common.Utilities.getAccentSaturation
+import com.drdisagree.colorblendr.data.common.Utilities.getBackgroundSaturation
+import com.drdisagree.colorblendr.data.common.Utilities.getBackgroundLightness
 import com.drdisagree.colorblendr.data.common.Utilities.getSeedColorValue
 import com.drdisagree.colorblendr.data.common.Utilities.getWallpaperColorList
 import com.drdisagree.colorblendr.data.common.Utilities.isShizukuMode
@@ -26,12 +29,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicLong
 
 object SamsungShizukuPaletteBridge {
     private const val TAG = "SamsungPaletteBridge"
     private val support = MutableStateFlow(false)
     val supported = support.asStateFlow()
     private val wallpaperGuard = SamsungWallpaperGuard()
+    private val sequence = AtomicLong()
+    @Volatile private var activeTransaction: String = "none"
     fun isSamsungDevice() = Build.MANUFACTURER.equals("samsung", ignoreCase = true)
     fun isSupported() = isSamsungDevice() && isShizukuMode() && support.value
 
@@ -42,7 +48,7 @@ object SamsungShizukuPaletteBridge {
     }
 
     fun trace(event: String) {
-        if (BuildConfig.DEBUG) Log.d(TAG, "t=${SystemClock.elapsedRealtime()} $event")
+        if (BuildConfig.DEBUG) Log.d(TAG, "t=${SystemClock.elapsedRealtime()} tx=$activeTransaction $event")
     }
 
     /** IO-only capability probe; called on screen entry and again at every apply. */
@@ -88,7 +94,9 @@ object SamsungShizukuPaletteBridge {
         val gateway = ShizukuSamsungGateway(connection, user)
         if (!probe(gateway)) return null
         val start = SystemClock.elapsedRealtime()
-        trace("T4 bridge begin seed=${getSeedColorValue()} style=${getCurrentMonetStyle()} manual=${customColorEnabled()}")
+        activeTransaction = "${Process.myPid()}-${sequence.incrementAndGet()}"
+        trace("T4 bridge begin seed=${getSeedColorValue()} style=${getCurrentMonetStyle()} manual=${customColorEnabled()} " +
+            "accentSaturation=${getAccentSaturation()} backgroundSaturation=${getBackgroundSaturation()} backgroundLightness=${getBackgroundLightness()}")
         try {
             // Exact live-preview generator, including current spec, tuning and pref overrides.
             // Samsung has a single tonal matrix; choose the active light/dark palette.
@@ -97,15 +105,17 @@ object SamsungShizukuPaletteBridge {
             val before = wallpaperFingerprint()
             val sourceColors = WallpaperColorUtil.getWallpaperColorsFromSource(appContext)
             wallpaperGuard.recordVerified(before, wallpaperFingerprint(),
-                sourceColors != null && sourceColors == getWallpaperColorList())
+                customColorEnabled() || (sourceColors != null && sourceColors == getWallpaperColorList()))
+            trace("expected mainSha=${SamsungPaletteObservation.sha(palette.serialized)} forG=unchanged-no-proven-generator")
             trace("T5 G Monet=${gateway.overlayEnabled(SamsungPaletteTransaction.G_MONET)}; T6 secure JSON skipped (Samsung authoritative)")
             trace("size=${palette.colors.size} A1_300=${rows[0][5]} A1_500=${rows[0][7]} A2_300=${rows[1][5]} A2_500=${rows[1][7]} A3_300=${rows[2][5]} N1_500=${rows[3][7]} N2_500=${rows[4][7]}")
             SamsungPaletteTransaction(gateway, SamsungBackupPreferences(appContext, user), log = ::trace).apply(palette)
-            if (BuildConfig.DEBUG) diagnosticLookups(gateway, palette)
             RefreshCoordinator.triggerRefresh()
+            trace("apply verified")
             return true
         } finally {
             trace("T14 bridge end durationMs=${SystemClock.elapsedRealtime() - start}")
+            activeTransaction = "none"
         }
     }
 
@@ -114,11 +124,17 @@ object SamsungShizukuPaletteBridge {
         val user = Process.myUid() / 100000
         val backups = SamsungBackupPreferences(appContext, user)
         if (backups.load() == null) return null
-        val result = SamsungPaletteTransaction(
-            ShizukuSamsungGateway(connection, user), backups, log = ::trace
-        ).restore()
-        RefreshCoordinator.triggerRefresh()
-        return result
+        activeTransaction = "${Process.myPid()}-${sequence.incrementAndGet()}-reset"
+        try {
+            val result = SamsungPaletteTransaction(
+                ShizukuSamsungGateway(connection, user), backups, log = ::trace
+            ).restore()
+            RefreshCoordinator.triggerRefresh()
+            return result
+        } finally {
+            trace("reset end")
+            activeTransaction = "none"
+        }
     }
 
     /** Called before BroadcastListener changes seed prefs. A true wallpaper change is retained. */
@@ -145,13 +161,4 @@ object SamsungShizukuPaletteBridge {
         }.getOrDefault("unavailable")
     }
 
-    private fun diagnosticLookups(gateway: ShizukuSamsungGateway, palette: SamsungPalette) {
-        listOf("qs_tile_round_background_on" to palette.colors[5], "volume_seekbar_progress_color" to palette.colors[18])
-            .forEach { (resource, expected) ->
-                runCatching {
-                    val actual = gateway.command("cmd overlay lookup --user ${Process.myUid() / 100000} --verbose com.android.systemui com.android.systemui:color/$resource")
-                    trace("diagnostic $resource expected=${String.format("#%08x", expected)} actual=$actual")
-                }.onFailure { trace("diagnostic lookup unavailable: $resource") }
-            }
-    }
 }

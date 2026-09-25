@@ -35,4 +35,17 @@ internal class ShizukuSamsungGateway(
     override suspend fun enableOverlay(name: String) {
         command("cmd overlay enable --user $user ${quote(name)}")
     }
+
+    override suspend fun lookup(packageName: String, resource: String): Int {
+        val value = command("cmd overlay lookup --user $user ${quote(packageName)} ${quote(resource)}")
+        return parseColor(value)
+    }
+
+    companion object {
+        internal fun parseColor(value: String): Int {
+            val hex = value.trim().removePrefix("#").removePrefix("0x")
+            require(hex.matches(Regex("[0-9a-fA-F]{8}"))) { "Unresolved overlay color: $value" }
+            return hex.toLong(16).toInt()
+        }
+    }
 }

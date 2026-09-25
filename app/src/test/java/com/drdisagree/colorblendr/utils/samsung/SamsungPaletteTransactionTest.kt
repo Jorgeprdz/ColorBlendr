@@ -77,6 +77,18 @@ class SamsungPaletteTransactionTest {
         var failures = 0
         var enableFailures = 0
         var permanentlyFailOverlay: String? = null
+        var staleResources = false
+        var staleGoogleResources = false
+        var brokenRollbackResources = false
+        var brokenRollbackMaterial = false
+        override suspend fun lookup(packageName: String, resource: String): Int {
+            val colors = settings["wallpapertheme_color"]?.removeSurrounding("[", "]")
+                ?.split(",")?.mapNotNull { it.trim().toIntOrNull() }
+            if (colors?.size != 65) return if (writes.isNotEmpty() && (brokenRollbackResources ||
+                (brokenRollbackMaterial && packageName == "com.drdisagree.colorblendr"))) -2 else -1
+            if (staleResources || (staleGoogleResources && packageName == "com.drdisagree.colorblendr")) return -1
+            return colors[if (resource.endsWith("qs_tile_round_background_on") || resource.endsWith("system_accent1_300")) 5 else 18]
+        }
         override suspend fun get(key: String) = settings[key]
         override suspend fun put(key: String, value: String?) {
             writes.add(key to value)
@@ -98,6 +110,95 @@ class SamsungPaletteTransactionTest {
         assertEquals(palette().serialized, g.settings["wallpapertheme_color"])
         assertEquals("1", g.settings["wallpapertheme_state"])
         assertEquals(listOf("0", "1"), g.writes.filter { it.first == "wallpapertheme_state" }.map { it.second })
+    }
+    @Test fun samsungOverwriteAtTwoSecondsCannotBeReportedAsSuccess() = runBlocking {
+        val g = FakeGateway()
+        val b = MemoryBackup()
+        var elapsed = 0L
+        val result = runCatching {
+            transaction(g, b, pause = {
+                elapsed += it
+                if (elapsed >= 2000) g.settings["wallpapertheme_color"] = "old palette"
+            }).apply(palette())
+        }
+        assertNotNull("A successful write is not a persistent apply", result.exceptionOrNull())
+        assertEquals("old palette", g.settings["wallpapertheme_color"])
+    }
+    @Test fun successWaitsForReconciliationWindowBeforeConfirmingBackup() = runBlocking {
+        val g = FakeGateway(); val b = MemoryBackup()
+        var elapsed = 0L
+        transaction(g, b, pause = {
+            assertTrue(b.value!!.pending)
+            elapsed += it
+        }).apply(palette())
+        assertTrue("Must observe at least ten seconds", elapsed >= 10000)
+        assertFalse(b.value!!.pending)
+    }
+    @Test fun enabledOverlaysWithStaleQsResourcesAreFailure() = runBlocking {
+        val g = FakeGateway(); g.staleResources = true
+        assertNotNull(runCatching { transaction(g).apply(palette()) }.exceptionOrNull())
+        assertEquals("old palette", g.settings["wallpapertheme_color"])
+    }
+    @Test fun delayedResourceRegenerationCanSucceed() = runBlocking {
+        val g = FakeGateway(); g.staleResources = true
+        var elapsed = 0L
+        transaction(g, pause = { elapsed += it; if (elapsed >= 2000) g.staleResources = false }).apply(palette())
+        assertEquals(palette().serialized, g.settings["wallpapertheme_color"])
+    }
+    @Test fun staleThirdPartyMonetIsFailureEvenWhenQsMatches() = runBlocking {
+        val g = FakeGateway(); g.staleGoogleResources = true
+        assertNotNull(runCatching { transaction(g).apply(palette()) }.exceptionOrNull())
+        assertEquals("old palette", g.settings["wallpapertheme_color"])
+    }
+    @Test fun unverifiedRollbackKeepsPendingBackup() = runBlocking {
+        val g = FakeGateway(); val b = MemoryBackup()
+        g.staleResources = true; g.brokenRollbackResources = true
+        val failure = runCatching { transaction(g, b).apply(palette()) }.exceptionOrNull()
+        assertNotNull(failure)
+        assertTrue(failure!!.suppressed.isNotEmpty())
+        assertTrue(b.value!!.pending)
+    }
+    @Test fun separateTransactionInstancesDoNotInterleaveWrites() = runBlocking {
+        val g = FakeGateway(); val b = MemoryBackup()
+        coroutineScope {
+            repeat(3) { launch { transaction(g, b, pause = { delay(1) }).apply(palette()) } }
+        }
+        val keys = g.writes.map { it.first }
+        assertEquals(List(3) { listOf("wallpapertheme_color", "wallpapertheme_color_isgray",
+            "wallpapertheme_state", "wallpapertheme_state") }.flatten(), keys)
+        assertEquals("old palette", b.value!!.original.palette)
+    }
+    @Test fun transientMainOverwriteIsNotHiddenByLaterRecovery() = runBlocking {
+        val g = FakeGateway(); var elapsed = 0L
+        val result = runCatching {
+            transaction(g, pause = {
+                elapsed += it
+                if (elapsed in 2000..4999) g.settings["wallpapertheme_color"] = "old palette"
+                else if (elapsed in 5000..10100) g.settings["wallpapertheme_color"] = palette().serialized
+            }).apply(palette())
+        }
+        assertNotNull(result.exceptionOrNull())
+    }
+    @Test fun missingGoogleOverlayIsNotSuccess() = runBlocking {
+        val g = FakeGateway(); g.overlays.remove(SamsungPaletteTransaction.G_MONET)
+        assertNotNull(runCatching { transaction(g).apply(palette()) }.exceptionOrNull())
+    }
+    @Test fun rollbackMustRestoreMaterialEvenWhenQsIsRestored() = runBlocking {
+        val g = FakeGateway(); val b = MemoryBackup()
+        g.staleResources = true; g.brokenRollbackMaterial = true
+        val failure = runCatching { transaction(g, b).apply(palette()) }.exceptionOrNull()
+        assertNotNull(failure)
+        assertTrue(failure!!.suppressed.isNotEmpty())
+        assertTrue(b.value!!.pending)
+    }
+    @Test fun legacyPendingBackupWithMissingPaletteStillRecoversEnabledState() = runBlocking {
+        val g = FakeGateway(); val b = MemoryBackup()
+        b.value = SamsungBackup(SamsungSnapshot(null, null, "0"), "interrupted", true)
+        g.settings["wallpapertheme_state"] = "0"
+        assertNotNull(runCatching { transaction(g, b).restore() }.exceptionOrNull())
+        assertEquals("1", g.settings["wallpapertheme_state"])
+        assertNull(g.settings["wallpapertheme_color"])
+        assertTrue(b.value!!.pending)
     }
     @Test fun neverTouchesGoogleArrayOrSecureJson() = runBlocking {
         val g = FakeGateway(); transaction(g).apply(palette())

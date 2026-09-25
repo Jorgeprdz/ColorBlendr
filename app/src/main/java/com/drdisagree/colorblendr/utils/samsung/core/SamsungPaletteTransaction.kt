@@ -12,9 +12,14 @@ interface SamsungGateway {
     /** null means absent; false means present but disabled. */
     suspend fun overlayEnabled(name: String): Boolean?
     suspend fun enableOverlay(name: String)
+    suspend fun lookup(packageName: String, resource: String): Int
 }
 
-data class SamsungSnapshot(val palette: String?, val gray: String?, val state: String?)
+data class SamsungSnapshot(
+    val palette: String?, val gray: String?, val state: String?,
+    val qs: Int? = null, val volume: Int? = null,
+    val materialA1: Int? = null, val materialA2: Int? = null
+)
 data class SamsungBackup(val original: SamsungSnapshot, val appliedPalette: String, val pending: Boolean = false)
 interface SamsungBackupStore {
     fun load(): SamsungBackup?
@@ -29,17 +34,19 @@ class SamsungPaletteTransaction(
     private val pause: suspend (Long) -> Unit = { delay(it) },
     private val log: (String) -> Unit = {}
 ) {
-    private val mutex = Mutex()
-
     suspend fun apply(palette: SamsungPalette) = mutex.withLock {
         val before = snapshot()
+        val beforeResources = mapOf(QS to checkNotNull(before.qs), VOLUME to checkNotNull(before.volume),
+            MATERIAL_A1 to checkNotNull(before.materialA1), MATERIAL_A2 to checkNotNull(before.materialA2))
         val oldBackup = backups.load()
         // Capture before the first write, durably. Do not replace the original on reapply.
         val backup = SamsungBackup(oldBackup?.original ?: before, palette.serialized, pending = true)
         backups.save(backup)
         try {
+            log("before mainSha=${SamsungPaletteObservation.sha(before.palette)} forGSha=${SamsungPaletteObservation.sha(gateway.get(FOR_G))} state=${before.state}")
             gateway.put(COLOR, palette.serialized)
             log("T7 wallpapertheme_color written size=${palette.colors.size}")
+            log("immediate mainSha=${SamsungPaletteObservation.sha(gateway.get(COLOR))}")
             gateway.put(GRAY, palette.grayFlag)
             log("gray=${palette.grayFlag}")
             gateway.put(STATE, "0")
@@ -48,8 +55,8 @@ class SamsungPaletteTransaction(
             retry { gateway.put(STATE, "1") }
             log("T9 state=1")
             verifyOverlays()
-            check(gateway.get(COLOR) == palette.serialized) { "Samsung palette changed during apply" }
-            check(gateway.get(STATE) == "1") { "Samsung theme is not enabled" }
+            observe(palette.serialized, palette.grayFlag, mapOf(QS to palette.colors[5], VOLUME to palette.colors[18],
+                MATERIAL_A1 to palette.colors[5], MATERIAL_A2 to palette.colors[18]), "apply")
             backups.save(backup.copy(pending = false))
         } catch (failure: Throwable) {
             // Cleanup survives caller cancellation. A dead binder can still prevent recovery;
@@ -66,6 +73,7 @@ class SamsungPaletteTransaction(
                 // including when the previous process left state=0 before this apply.
                 recover { retry { gateway.put(STATE, "1") } }
                 recover { repairPresentOverlays() }
+                recover { observe(before.palette, before.gray, beforeResources, "rollback") }
                 if (recoveryErrors.isEmpty()) {
                     recover { if (oldBackup == null) backups.clear() else backups.save(oldBackup) }
                 }
@@ -84,6 +92,13 @@ class SamsungPaletteTransaction(
             return@withLock true
         }
         val original = backup.original
+        val originalColors = original.palette?.removeSurrounding("[", "]")?.split(",")
+            ?.mapNotNull { it.trim().toIntOrNull() }?.takeIf { it.size == 65 }
+        val originalResources = listOf(
+            QS to (original.qs ?: originalColors?.get(5)),
+            VOLUME to (original.volume ?: originalColors?.get(18)),
+            MATERIAL_A1 to original.materialA1, MATERIAL_A2 to original.materialA2
+        ).mapNotNull { (key, value) -> value?.let { key to it } }.toMap()
         backups.save(backup.copy(pending = true))
         try {
             gateway.put(COLOR, original.palette)
@@ -92,6 +107,11 @@ class SamsungPaletteTransaction(
             pause(100)
             retry { gateway.put(STATE, "1") }
             verifyOverlays()
+            observe(original.palette, original.gray, originalResources, "reset")
+            // Legacy backups have no historical resolved resources. Attempt recovery
+            // first (especially state=0), but retain evidence instead of claiming it
+            // is fully verified or inventing the missing Material baseline.
+            check(originalResources.size == 4) { "Legacy Samsung backup restored settings; resource baseline unavailable, backup retained" }
             backups.clear()
             log("reset: original Samsung palette restored; state=1")
             true
@@ -106,7 +126,13 @@ class SamsungPaletteTransaction(
         }
     }
 
-    private suspend fun snapshot() = SamsungSnapshot(gateway.get(COLOR), gateway.get(GRAY), gateway.get(STATE))
+    private suspend fun snapshot() = SamsungSnapshot(gateway.get(COLOR), gateway.get(GRAY), gateway.get(STATE),
+        gateway.lookup("com.android.systemui", QS), gateway.lookup("com.android.systemui", VOLUME),
+        gateway.lookup("com.drdisagree.colorblendr", MATERIAL_A1), gateway.lookup("com.drdisagree.colorblendr", MATERIAL_A2))
+
+    private suspend fun observe(palette: String?, gray: String?, resources: Map<String, Int>, phase: String) {
+        SamsungPaletteObservation(gateway, pause, log).verify(palette, gray, resources, phase)
+    }
 
     private suspend fun verifyOverlays() {
         // Samsung registration is asynchronous; bounded observation, not a background poller.
@@ -148,12 +174,20 @@ class SamsungPaletteTransaction(
     }
 
     companion object {
+        // Transactions are recreated for every Apply/reset; an instance mutex did not
+        // protect callers using distinct transaction instances.
+        private val mutex = Mutex()
         const val COLOR = "wallpapertheme_color"
+        const val FOR_G = "wallpapertheme_color_for_g"
         const val GRAY = "wallpapertheme_color_isgray"
         const val STATE = "wallpapertheme_state"
         const val ANDROID = "android:SemWT_android"
         const val SYSTEM_UI = "android:SemWT_com.android.systemui"
         const val G_MONET = "android:SemWT_G_MonetPalette"
+        const val QS = "com.android.systemui:color/qs_tile_round_background_on"
+        const val VOLUME = "com.android.systemui:color/volume_seekbar_progress_color"
+        const val MATERIAL_A1 = "android:color/system_accent1_300"
+        const val MATERIAL_A2 = "android:color/system_accent2_300"
         val requiredOverlays = listOf(ANDROID, SYSTEM_UI, G_MONET, "android:SemWT_MonetPalette")
     }
 }

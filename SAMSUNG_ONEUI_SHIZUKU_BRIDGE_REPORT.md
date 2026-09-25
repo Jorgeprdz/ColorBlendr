@@ -1,205 +1,159 @@
-# Samsung One UI + Shizuku Palette Bridge
+# Samsung bridge: auditoría y verificación acotada (2026-09-25)
 
-## Estado y recuperación después de SIGKILL
+## Estado de esta revisión
 
-Checkout conservado: `/workspace/ColorBlendr`. Remote original:
-`https://github.com/Mahmud0808/ColorBlendr.git`. Base:
-`5b078e92abfa482674d82a23ce2a302d17cee756`. Rama:
-`fix/samsung-oneui-shizuku-palette-bridge`.
+**No es un arreglo definitivo del motor Samsung.** Corrige falsos éxitos y añade
+instrumentación/recuperación comprobada. La aplicación efectiva de una paleta
+ColorBlendr a MAIN, FOR_G y roles dinámicos en SM-S931B / Android 16 / One UI 8.5
+BP4A.251205.006.S931BXXSCCZH1 sigue sin demostrarse. Un CI verde acredita tests y
+compilación, no comportamiento en ese firmware. La APK debe tratarse como
+instrumentada, no como solución de los ocho objetivos originales.
 
-Al retomar existían ocho archivos tracked modificados (+119/-33), siete archivos
-del bridge, tres suites de tests, el proyecto JVM independiente y el plan previo.
-Esto es el estado observado, más avanzado que la estimación anterior de seis
-archivos. Se conservaron esos cambios; no se clonó, reseteó ni descartó el checkout.
-JDK/SDK y resultados de tests anteriores estaban presentes. No se ejecutó ni
-validó la adaptación local de aidl. `/proc` no mostró procesos huérfanos de este
-build; `./gradlew --stop` indicó que no había daemons. No se usó QEMU ni se lanzó
-ningún build Android local en esta reanudación.
+La evidencia del usuario se acepta: watchers externos eliminados, paleta antigua
+estable 20 s, Apply cambia preview pero QS resuelve #ff7caee8 y volumen #ffc09ed6.
+No se atribuye el problema a Termux ni se lanza ningún watcher.
 
-## Problema, evidencia y causa raíz
+## Acceso y fuentes
 
-Objetivo: Galaxy S25, Android 16, One UI 8.5, Shizuku sin root. Evidencia aportada
-por el usuario: con seed `#F3EDC8` y EXPRESSIVE, HeliBoard cambió a amarillo cerca
-de un segundo y volvió a los colores anteriores. Fue HeliBoard, no Samsung
-Keyboard. No se añadió integración particular con ningún teclado.
+Checkout: Jorgeprdz/ColorBlendr, rama fix/samsung-oneui-shizuku-palette-bridge,
+base 57c80cc. Se leyeron bridge, gateway, transaction, backup, wallpaper guard,
+OverlayManager, PreviewController, BroadcastListener, tests y commits recientes.
 
-El usuario confirmó que `android:SemWT_com.android.systemui` sobrescribe recursos
-reales: `qs_tile_round_background_on = accent1_300` y
-`volume_seekbar_progress_color = accent2_300`. También confirmó que escribir
-los 65 colores en Settings.System y hacer state 0→1 regenera SemWT.
+Este entorno contiene /workspace/shizuku/rish pero no /system/bin/sh ni
+/system/bin/app_process. Ejecutarlo devuelve exit 127. No hay conexión ADB
+configurada disponible. No se han ejecutado pruebas, settings writes, reinicios
+ni comandos de overlays en el teléfono durante esta revisión.
 
-Causa arquitectónica demostrable en el código anterior: la ruta sin root sólo
-enviaba seed/style mediante `theme_customization_overlay_packages`; no enviaba
-la matriz generada ni sus ajustes. Además, alternaba G Monet (enable/disable)
-en cada aplicación, por lo que una segunda aplicación podía deshabilitarlo.
-El listener de wallpaper podía forzar otra aplicación aun sin nuevo wallpaper,
-y actualizar el seed desde un extractor con fallback a colores del framework.
+Fuentes de implementación consultadas, no equivalentes a decompilar el firmware
+exacto del usuario:
 
-La cadena exacta que produjo el flash en ese S25 sigue siendo provisional:
-no hay captura temporal de logcat del incidente ni acceso al dispositivo en esta
-sesión. El flash demuestra una transición observada, no identifica por sí solo
-quién reaplicó el tema. La solución elimina los mecanismos anteriores en la ruta
-Samsung soportada y deja trazas temporales T0–T14 para comprobarlo.
+- [SemWallpaperThemeManagerWrapper](https://github.com/488315/samsung_framework/blob/30cd25b68f67be792ab78fb46fb9f63af0964522/services/sources/com/android/server/om/wallpapertheme/SemWallpaperThemeManagerWrapper.java)
+- [SemWallpaperThemeManager](https://github.com/488315/samsung_framework/blob/30cd25b68f67be792ab78fb46fb9f63af0964522/services/sources/com/android/server/om/wallpapertheme/SemWallpaperThemeManager.java)
+- [OverlayGenerator](https://github.com/488315/samsung_framework/blob/30cd25b68f67be792ab78fb46fb9f63af0964522/services/sources/com/android/server/om/wallpapertheme/OverlayGenerator.java)
+- [ThemePalette](https://github.com/488315/samsung_framework/blob/30cd25b68f67be792ab78fb46fb9f63af0964522/framework/sources/android/content/om/wallpapertheme/ThemePalette.java)
+- [SemWallpaperThemeOverlayPolicy](https://github.com/488315/samsung_framework/blob/30cd25b68f67be792ab78fb46fb9f63af0964522/services/sources/com/android/server/om/wallpapertheme/SemWallpaperThemeOverlayPolicy.java)
+- [ThemeOverlayController](https://github.com/488315/samsung_framework/blob/30cd25b68f67be792ab78fb46fb9f63af0964522/SystemUI-Jadx/sources/com/android/systemui/theme/ThemeOverlayController.java)
+- [IOverlayManager One UI 8.0](https://github.com/488315/android_samsung_frameworks_base/blob/d7c13fe69a1ad46f8dff0254f1abd32596fef5cd/src/android/content/om/IOverlayManager.java)
+- [ColorPaletteCreator One UI 8.0](https://github.com/488315/android_samsung_frameworks_base/blob/d7c13fe69a1ad46f8dff0254f1abd32596fef5cd/src/com/samsung/android/wallpaper/colortheme/ColorPaletteCreator.java)
 
-## Arquitectura y palette65
+## Diagnóstico y seis hipótesis
 
-`PreviewController.buildPreviewColors()` lee estilo y ajustes internos y llama
-`generateModifiedColors()` para modo claro y oscuro. El bridge usa ese mismo
-generador, selecciona la matriz del modo activo y la valida con `SamsungPalette`.
-No obtiene los 65 colores de recursos Monet del framework. Las consultas de
-recursos SystemUI son diagnósticas posteriores, nunca la entrada del generador.
+1. **Orden state=0 y escritura:** no demostrado. La implementación publicada
+   genera FRRO desde ThemePalette en memoria; escribir Settings no actualiza esa
+   estructura. Mover un delay no resuelve por sí mismo esta diferencia. Se conserva
+   el orden anterior, explícitamente sin presentarlo como validado.
+2. **state=1 como petición de regeneración:** no acreditado. En el código Samsung
+   examinado, saveWallpaperThemeState es una salida del commit del motor, no una
+   API que acepte la matriz arbitraria escrita por otra app.
+3. **API real:** existe IOverlayManager.applyWallpaperColor(List MAIN, List GG,
+   boolean isGray), también en las interfaces publicadas de One UI 8.0. El wrapper
+   comprueba checkSignatures(1000, callingUid), actualiza ThemePalette, registra y
+   habilita FRRO, hace commit y guarda settings. El rechazo puede retornar sin
+   lanzar excepción. Su autorización bajo Shizuku y comportamiento en el build
+   objetivo no están verificados. No se han hardcodeado transacciones Binder ni
+   añadido una llamada mutante sin un par de paletas justificado.
+4. **Otra fuente canónica:** demostrada en el código publicado. ThemePalette
+   mantiene SS/GG en memoria y writeLastPalette guarda ambas matrices y gray en
+   /data/overlays/wallpapertheme/last_palette.txt. El wrapper recupera esa paleta.
+   saveWallpaperThemeColor escribe ambos settings desde memoria y puede reintentarlo
+   un segundo después ante excepción. Es compatible con el síntoma, pero no prueba
+   qué escritor restauró MAIN en el S25. Hace falta evidencia del build real para
+   atribuir causalidad exacta.
+5. **SystemUI dynamic:** el controlador crea un overlay propiedad de
+   com.android.systemui dirigido a android con roles system_*_light/dark. Esto no
+   prueba que escriba los recursos QS citados. Tiene condiciones relativas a
+   wallpapertheme_state; alternar state puede abrir la ruta Monet. Su existencia
+   aislada no permite culparlo de la restauración. Ahora se registra su estado.
+6. **MAIN/FOR_G:** ambas son matrices 5x13. OverlayGenerator usa SS para
+   SemWT_MonetPalette y GG para SemWT_G_MonetPalette. La política conserva GG para
+   paquetes ajenos a los metadatos Samsung, mientras android y paquetes Samsung
+   usan SS. Ignorar GG no permite garantizar HeliBoard. Los generadores Samsung
+   publicados ofrecen caminos distintos HSL/Monet; no definen una transformación
+   universal de una matriz ColorBlendr arbitraria con overrides y todos sus estilos.
+   **FOR_G no se escribe ni se copia desde MAIN.** No se inventa una transformación.
 
-Orden: accent1, accent2, accent3, neutral1, neutral2. Cada fila contiene exactamente
-13 tonos: 0,10,50,100,200,300,400,500,600,700,800,900,1000. Se descarta la sexta
-fila `error`. Índice = familia*13 + posición del tono. Ejemplos: A1_300=5,
-A2_300=18, N1_500=46. La lista se serializa como `[Int, Int, ...]`, con 65 ARGB
-de Kotlin con signo, sin convertirlos a unsigned. Se validan nombres y dimensiones.
-`isgray=1` sólo si todos los colores finales tienen R=G=B, incluidos overrides.
+La causa demostrada en ColorBlendr es el criterio de éxito insuficiente. La causa
+exacta de la reconciliación en el firmware objetivo sigue sin identificar. El
+informe anterior afirmaba demasiado al tratar state 0→1 como regeneración probada;
+esta revisión reemplaza esa afirmación.
 
-Seed manual, wallpaper seed almacenado, estilos integrados, secondary/tertiary y
-overrides por tono siguen pasando por la configuración interna existente.
-Una matriz Samsung única no representa simultáneamente todos los roles Material
-claros/oscuros ni todas las capacidades exclusivas de root.
+## Auditoría del flujo
 
-## Saturación y UI
+Apply hace commitStaged, actualiza monetLastUpdated y llama OverlayManager. Esa
+marca no es un listener interno que restaure Samsung. OverlayManager serializa
+apply/remove con un Mutex. Samsung usa PreviewController.buildPreviewColors;
+se conservan generador, seed, estilo, sliders, overrides y selección light/dark.
+La ruta Samsung evita el JSON seguro y no cambia el algoritmo del generador.
 
-Accent saturation, Background saturation y Background lightness se habilitan
-para root o para Samsung + Shizuku + soporte comprobado. No se habilitan para
-Shizuku de otros fabricantes. Se mantiene 0..200 y la presentación 100=1.00x,
-150=1.50x, 200=2.00x. Se conserva el algoritmo original de ColorBlendr: el valor
-mostrado no implica multiplicar literalmente cada componente RGB.
+PreviewController tiene un scope propio independiente de Activity y un mutex de
+commit. Antes ignoraba false devuelto por OverlayManager; ahora un fallo Samsung
+Shizuku no registra un apply comunitario exitoso. El error visible sigue siendo
+el que ya publica OverlayManager. Root y otras marcas conservan su flujo.
 
-Los tres getters alimentan `generateModifiedColors()` tanto para preview como
-para aplicación. El algoritmo original limita saturación en estilos monocromáticos
-y neutrales Rainbow; los overrides explícitos por tono prevalecen sobre tuning.
-Los tests de integración comparan 100 y 150 para los tres controles, ambos modos
-y staging→commit. Su ejecución Android/Robolectric queda pendiente de CI.
+BroadcastListener puede programar otro apply forzado por wallpaper y esperar el
+commitMutex. El guard por fingerprint evita duplicados; el baseline ahora también
+se acepta en seed manual si los IDs son estables, aunque la extracción no coincida
+con colores guardados (el seed manual no depende de ellos). Cambios reales de IDs
+siguen atravesando el guard. Configuración reaplica solo cuando cambia night mode.
+No se ha demostrado la ausencia de todos los posibles duplicados en el dispositivo.
 
-## Secuencia Shizuku y recuperación
+No se encontró un job autónomo que restaure SamsungBackupPreferences segundos
+después del éxito. Rollback está dentro del catch de apply; restore se llama desde
+removeIfOwned. Backup pending no tiene un watcher. El mutex de la transacción era
+por instancia aunque se construye una instancia por apply: ahora es compartido.
 
-1. Comprobar fabricante Samsung (case-insensitive), método Shizuku, disponibilidad,
-   permiso y `wallpapertheme_state` reconocido como 0/1. Fallo de detección no
-   habilita los sliders.
-2. Conexión existente a Shizuku; comandos verificados por exit code, stdout y
-   stderr mediante AIDL append-only. No se busca `su` en el servicio Shizuku.
-3. Guardar snapshot durable por usuario Android, fuera de preferencias staged.
-4. Escribir `wallpapertheme_color`, `wallpapertheme_color_isgray`, state=0,
-   pausa suspendida de 100 ms, state=1 con reintento acotado.
-5. Observar registro asíncrono SemWT con hasta ocho observaciones; exigir Android
-   y SystemUI habilitados y verificar settings. Habilitar overlays presentes que
-   estén disabled. Nunca deshabilitar G Monet, SystemUI ni ningún otro SemWT.
-6. Guardar backup como confirmado y refrescar la UI. Un fallo del bridge no
-   continúa por la segunda ruta de JSON seguro.
+## Flujo implementado y límites
 
-`wallpapertheme_color_for_g` nunca se escribe. Tampoco se escribe JSON seguro
-en la ruta Samsung soportada. No se toca `ThemeOverlayPackage` para otros equipos.
-G Monet se conserva habilitado; no se alterna ni se cambia su matriz independiente.
-Su coexistencia efectiva con SemWT y aplicaciones concretas debe validarse en S25.
+1. Capturar settings y recursos QS, volumen y Material A1/A2 desde contexto de la
+   app; guardar backup durable pendiente antes de escribir.
+2. Mantener el transporte actual: MAIN, gray, state=0, 100ms, state=1 y reparación
+   acotada de overlays presentes. **Este paso aún no es la vía definitiva del motor.**
+3. Observar a intervalos programados 0,250,1000,2000,5000,10000ms; los comandos
+   añaden latencia. Se registran tiempo monotónico real, tx PID-secuencia, seed,
+   estilo, tres sliders, SHA-256 UTF-8 de MAIN esperado/real y FOR_G real, state,
+   gray, cuatro SemWT, dynamic y colores resueltos. MAIN se lee también justo
+   después de escribir. No hay tareas programadas después del retorno.
+4. Exigir MAIN igual en todas las muestras; al final exigir state=1, gray correcto,
+   los cuatro SemWT habilitados, QS=A1_300, volumen=A2_300 y esos dos tonos framework
+   resueltos en ColorBlendr iguales al generador. La última comprobación detecta
+   GG antiguo en contexto de terceros, pero no sustituye verificar todos los roles
+   dinámicos o HeliBoard real. Sólo entonces confirmar backup y devolver éxito.
+5. Ante fallo, restaurar settings anteriores, state=1 y overlays; verificar otros
+   diez segundos incluyendo recursos Material históricos antes de borrar/reponer
+   backup. Si falla recuperación, conservar pending y adjuntar errores al original.
+   Cancelación del caller no interrumpe ese cleanup. Un Binder bloqueado no tiene
+   timeout nuevo: las pausas son acotadas, no toda llamada remota arbitraria.
+6. Reset observa también diez segundos. Backups legacy sin recursos históricos
+   intentan recuperar settings/state, pero se conservan pendientes y se informa
+   verificación incompleta. No se inventa evidencia de recuperación.
 
-Ante fallo/cancelación se intenta restaurar paleta/gray previos, terminar state=1
-y reparar overlays incluso si otro paso de recuperación falla. Los fallos se
-propagan; un binder muerto o permisos revocados hacen imposible garantizar la
-escritura física. El backup pendiente permanece para recuperación posterior.
-Reset restaura la paleta original y termina en 1, incluso si el snapshot inicial
-tenía 0; no restaura deliberadamente un estado disabled. Si detecta una selección
-externa posterior confirmada, la conserva y abandona la propiedad del backup.
+No garantiza persistencia tras reboot, todos los roles Material, HeliBoard ni
+aplicación nueva a QS. Es deliberado reportar fallo con la evidencia aportada,
+en vez de aceptar nuevamente un FRRO habilitado con datos antiguos.
 
-## Anti-loop y concurrencia
+## Tests y entrega
 
-`SamsungWallpaperGuard` usa AtomicReference y comparación de IDs del wallpaper
-home/lock, más colores del wallpaper vivo. El baseline previo a aplicar sólo se
-acepta si una extracción real coincide con los colores almacenados y el fingerprint
-es estable antes/después. Un callback idéntico omite extracción y cambios de seed,
-pero conserva cambios Tasker pendientes para pantalla apagada. No hay ventana
-temporal; si no puede obtenerse fingerprint, no se suprime el evento.
-Las llamadas Binder del fingerprint se ejecutan en IO.
+Se reprodujeron primero dos fallos con la implementación anterior: no esperar
+la ventana y aceptar una paleta restaurada a los 2s. La suite existente cubre
+65 colores/orden, estilos/tuning (Robolectric), ruta Samsung/Shizuku, fallback,
+callbacks y cancelación. Nuevos tests cubren reconciliación tardía/transitoria,
+QS antiguo, Material antiguo, regeneración de recursos retrasada, overlay GG
+faltante, serialización entre instancias, rollback incompleto y backup legacy.
 
-La extracción estricta Samsung no usa fallback Monet: lee wallpaper vivo o archivo
-de wallpaper con decodificación reducida. Sin acceso conserva el seed anterior.
-También se usa al refrescar la lista de wallpaper durante recreación de Activity,
-otro posible camino de sustitución del seed. Root/AOSP mantienen su extractor.
-Un fallo de consulta de soporte durante apply es error, no permiso para cambiar a
-la ruta JSON antigua. Los tests del núcleo comprueban baseline cambiado antes,
-durante y después de la extracción; la integración Android queda para CI.
-
-`OverlayManager` serializa apply/remove con un Mutex y ejecuta en Dispatchers.IO;
-`PreviewController` serializa commits/apply y los callbacks esperan su finalización.
-La transacción tiene además su mutex. La configuración sólo reaplica cuando cambia
-night mode; los refresh internos reconstruyen UI sin escribir el tema seguro.
-La serialización cubre las escrituras del bridge dentro de ColorBlendr; no controla
-procesos Samsung ni aplicaciones externas. No se promete atomicidad de preferencias
-frente a cualquier escritor externo.
-
-## Tests y validación
-
-Primera repetición tras SIGKILL: **31/31 JVM PASS**. Se reprodujeron tres regresiones
-antes de corregirlas: fingerprint unavailable, reset desde 0 y fallo temprano
-desde 0. La suite ampliada cubre además atomicidad del guard y recuperación de
-SystemUI/G aunque otro overlay falle. Resultado final del núcleo: **37/37 PASS**,
-sin fallos ni skips (Gradle BUILD SUCCESSFUL, 18 s). XML conservados en
-`bridge-tests/build/test-results/test/`.
-
-Comando local, sin configurar el proyecto Android:
+Comando núcleo local:
 
 ```sh
 ./gradlew -p bridge-tests test --no-daemon --max-workers=1 \
   -Dorg.gradle.jvmargs=-Xmx384m -Pkotlin.compiler.execution.strategy=in-process
 ```
 
-Cobertura JVM: tamaño/orden, signed ARGB, Samsung/no Samsung, requisito Shizuku,
-gray, exclusión for_g/secure JSON, state recovery, overlay recovery, cancelación,
-concurrencia, callbacks duplicados, backup persistente, reset externo e idempotencia
-del resultado. Reaplicar explícitamente vuelve a regenerar SemWT; idempotencia
-no significa ausencia de escrituras.
+Workflow existente: .github/workflows/build-samsung-shizuku-bridge.yml. Ejecuta
+núcleo JVM, :app:testDebugUnitTest y assembleDebug. Artifact APK:
+ColorBlendr-Samsung-OneUI-Shizuku-Debug. Los resultados finales, run, commit y
+SHA-256 se proporcionan en la entrega después de descargarlos, no se anticipan.
 
-`SamsungGeneratedPaletteTest` ejercita el generador real con Robolectric: tuning,
-preview/aplicación, ambos modos, commit de staging, seed manual/wallpaper, todos
-los estilos, overrides y monochrome. No se cuentan como PASS sin ejecutarlos.
-
-## CI y APK
-
-Workflow: `.github/workflows/build-samsung-shizuku-bridge.yml`, ubuntu-latest
-x86_64, JDK 17/21, Gradle cache, SDK nativo del runner, JVM core tests,
-`:app:testDebugUnitTest`, `./gradlew assembleDebug` y upload-artifact.
-Artifact: `ColorBlendr-Samsung-OneUI-Shizuku-Debug`. Ruta esperada del build:
-`app/build/outputs/apk/debug/ColorBlendr v3.0.1.apk`.
-
-Estado comprobado al preparar la entrega: la cuenta conectada `Jorgeprdz` tiene
-`push=false` en `Mahmud0808/ColorBlendr`; `Jorgeprdz/ColorBlendr` devuelve 404.
-No hay credencial Git CLI ni herramienta conectada para crear forks.
-Se solicitó un fork escribible mientras continuaba el trabajo local.
-Commit de implementación local: `50a566eea7185f39626fd8d3f56a1b25af0588bd`.
-El intento de push sin interacción terminó con exit 128:
-`could not read Username for 'https://github.com': terminal prompts disabled`.
-**No hay todavía run CI, assembleDebug PASS ni APK construida para este cambio.**
-La ruta anterior es esperada, no un archivo entregado. No se sustituirá la APK
-por una de upstream ni se afirmará compilación sin evidencia.
-
-## Validación manual en Galaxy S25
-
-1. Instalar la APK de ese commit cuando CI finalice. Si la firma no coincide con
-   la instalada, respaldar preferencias antes de cualquier desinstalación.
-2. Iniciar Shizuku, conceder acceso a ColorBlendr, seleccionar SHIZUKU y activar
-   theming. Verificar que los tres sliders están habilitados.
-3. Elegir seed manual `#F3EDC8`, EXPRESSIVE, ajustes 100. Aplicar y guardar logcat
-   con tag `SamsungPaletteBridge`. Observar QS y HeliBoard al instante, a 2 s y 30 s.
-4. Cambiar Accent a 150 y aplicar. Comparar los 39 colores accent del setting y
-   el preview. Repetir Background saturation y lightness, comparando los 26 neutral.
-5. Leer (sólo diagnóstico) settings color/isgray/state y lista de overlays mediante
-   shell Shizuku/ADB: 65 enteros, state=1, SystemUI/G no disabled. Guardar antes y
-   después `wallpapertheme_color_for_g`: el bridge no debe haberlo escrito.
-6. Abrir/cerrar panel QS, cambiar configuración y esperar: no debe reaparecer el
-   viejo seed. Cambiar wallpaper real en modo wallpaper: sí debe actualizarse.
-7. Probar claro/oscuro, monocromático, estilo personalizado, Apply repetido y reset.
-8. Detener Shizuku durante una aplicación en un ensayo controlado: confirmar error,
-   reiniciar Shizuku y restablecer; comprobar state=1 y overlays. No asumir que un
-   proceso sin permisos puede recuperar el dispositivo.
-
-## Changelog humano
-
-- Conservado el trabajo previo y verificada de nuevo su suite JVM.
-- Samsung recibe la paleta generada y ajustada por ColorBlendr, no sólo seed/style.
-- Los tres sliders se ofrecen en Shizuku Samsung soportado.
-- Se elimina el toggle destructivo de G Monet y se filtran callbacks idénticos.
-- Apply/reset serializados, backups durables y recuperación independiente.
-- Añadidos tests de regresión, CI x86_64 y este informe con límites explícitos.
+Para actualización sobre la APK actual, se comprobará primero el certificado
+contra /storage/emulated/0/Download/ColorBlendr-Samsung-OneUI-Shizuku-Debug.apk.
+Instalación prevista con firmas iguales: abrir la APK y elegir Actualizar, o
+`adb install -r ColorBlendr-Samsung-OneUI-Shizuku-Debug.apk`. No requiere borrar
+datos. Esta revisión no instala automáticamente nada en el teléfono.
