@@ -8,15 +8,15 @@
 **Spec:** User's current request, including no root, no daemons, no MAIN→GG copy, no hardcoded Binder transaction, no modifications to non-Samsung/root flow; forced reinstall authorized without backup.
 
 ## Work
-- [ ] Prove transport contracts with fake native/fabricated engines: allowed/denied/no-op, stale resources, fallback only after verified rollback, reset, concurrency and pending recovery.
-- [ ] Implement engine coordinator and separate durable journal; leave existing diagnostic regression suite intact.
-- [ ] Add append-only AIDL calls for capability, OEM GG generation, snapshot, native apply/restore and fabricated apply/cleanup. Resolve firmware interfaces reflectively; no AOSP transaction indices.
-- [ ] Generate full SystemUI mapping from firmware MetaDataManager/TemplateManager and runtime ThemePalette; no two-resource approximation. Generate framework 65 from internal generator for fabricated backend.
-- [ ] Capture native pair/state/overlay enablement and resolved probes before mutation. Native rollback uses applyWallpaperColor, never settings writes. Fabricated ownership limited to ColorBlendr IDs; persist its prior payload for replacement/reset.
-- [ ] Integrate native-first selection in Samsung bridge; verification checks state, both native arrays, all five families and QS resources. Exclude old settings-only apply.
-- [ ] Test GG tuning/overrides independently with injected OEM generator. Preserve all existing tests. Test malformed input, cleanup refusal, no-op native, missing OEM API/style, stale replacement and cross-instance concurrency.
+- [x] Prove transport contracts with fake native/fabricated engines: allowed/denied/no-op, stale resources, fallback only after verified rollback, reset, concurrency and pending recovery.
+- [x] Implement engine coordinator and separate durable journal; leave existing diagnostic regression suite intact.
+- [x] Add append-only AIDL calls for capability, OEM GG generation, snapshot, native apply/restore and fabricated apply/cleanup. Resolve firmware interfaces reflectively; no AOSP transaction indices.
+- [x] Generate full SystemUI mapping from firmware MetaDataManager/TemplateManager and runtime ThemePalette; no two-resource approximation. Generate framework 65 from internal generator for fabricated backend.
+- [x] Capture native pair/state/overlay enablement and resolved probes before mutation. Native rollback uses applyWallpaperColor, never settings writes. Fabricated ownership limited to ColorBlendr IDs; persist its prior payload for replacement/reset.
+- [x] Integrate native-first selection in Samsung bridge; verification checks state, both native arrays, all five families and QS resources. Exclude old settings-only apply.
+- [x] Test GG tuning/overrides independently with injected OEM generator. Preserve all existing tests. Test malformed input, cleanup refusal, no-op native, missing OEM API/style, stale replacement and cross-instance concurrency.
 - [ ] Review, run core tests, commit/push, run CI tests+assembleDebug and download/hash artifact.
-- [ ] Deliver one reinstall script using adb uninstall → adb install -g → pm path. Execute only if physical device is connected.
+- [x] Deliver one reinstall script using adb uninstall → adb install -g → pm path. Execute only if physical device is connected.
 
 ## Review focus
 - Shell denial must not turn into success or unauthorized identity escalation.

@@ -1,3 +1,102 @@
+# Samsung native palette engine — 2026-09-25
+
+## Resultado y evidencia
+
+Esta revisión implementa transporte real, no otra variante de `settings put`.
+El dispositivo probó 0aef998: MAIN persistió diez segundos (`overwritten=false`),
+pero QS, volumen y Material You conservaron recursos antiguos. Esto descarta que
+una restauración tardía del setting explique esa ejecución. El código Samsung
+publicado mantiene SS/GG en ThemePalette; `applyWallpaperColor(SS, GG, gray)`
+actualiza ese estado, genera FRRO y después refleja las matrices en Settings.
+Escribir sólo el espejo persistente no hizo ese trabajo en el S25.
+
+No hay acceso físico al S25 desde este entorno. Los capability checks reales
+quedan dentro de Apply y su resultado se registra. No se afirma que esta APK ya
+haya cambiado recursos en BP4A.251205.006.S931BXXSCCZH1. Las fuentes Samsung
+publicadas orientan la implementación; no se presentan como decompilación de ese
+build exacto.
+
+## Flujo implementado
+
+1. MAIN procede del generador interno existente, con seed, estilo, sliders y
+   overrides. No cambia el generador ni las rutas root/no Samsung.
+2. El UserService Shizuku usa su UID 2000. `clearCallingIdentity` elimina la
+   identidad entrante de la app, no adquiere UID 1000. Resuelve el Proxy real de
+   `IOverlayManager` del firmware; no contiene números Binder hardcodeados.
+3. Native probe comprueba métodos, firma plataforma y lectura `getLastPalette`.
+   Samsung publicado comprueba firma y puede retornar sin hacer nada: por ello
+   un retorno void nunca acredita éxito. Theme Park se rechaza antes de mutar,
+   porque esta API borra sus objetos y no existe aquí un backup completo de ellos.
+4. GG se genera independientemente mediante el camino OEM
+   `ColorPalette(ColorScheme(seed, false, style)).getTable()`. Se aplican los
+   mismos ColorModifiers, seeds secundarios/terciarios y overrides explícitos.
+   No se copia MAIN ni se usa la paleta resuelta del framework como fuente.
+   Actualmente native admite ColorSpec 0 y estilos presentes en el enum OEM;
+   otras configuraciones pasan a fabricated sin sustituir estilos en silencio.
+5. Native captura el par canónico, estado, overlays y recursos originales;
+   escribe un journal duradero y llama `applyWallpaperColor`. No hay toggle
+   state 0→1 ni writes directos a los settings para aplicar.
+6. Si native no está disponible/permitido, o falla y su rollback queda
+   verificado, se prueba fabricated. El probe registra/habilita/deshabilita/
+   elimina overlays propios de prueba para ambos targets, dentro de una
+   transacción y con limpieza final. No se ejecuta al abrir la app.
+7. Fabricated usa únicamente IDs `com.android.shell:colorblendr_samsung_*`.
+   Cubre 65 tonos framework más roles generados y el mapping SystemUI del
+   firmware completo: MetaDataManager + TemplateManager + ThemePalette,
+   variantes light/night y opacidades. No es una lista de dos colores QS.
+   Reemplaza sus propios IDs; no elimina SemWT.
+8. Verifica a 0/250/1000/2000/5000/10000 ms: par/estado native, overlays,
+   QS, volumen, varios recursos adicionales SystemUI y tonos 300/500/900
+   de las cinco familias en contexto third-party ColorBlendr. Native espera
+   GG en ese contexto; SystemUI espera el mapping de MAIN. Fabricated espera
+   MAIN en framework y conserva el estado Samsung subyacente. Una regresión
+   tras coincidir también falla, aunque el último sample vuelva a coincidir.
+9. Rollback native vuelve a invocar la API con el par anterior y restaura
+   enablement; rollback fabricated repone el payload anterior o elimina sólo
+   sus objetos. Reset usa el snapshot original. Un fallo de recuperación deja
+   pending y bloquea otro backend. Las transacciones están serializadas.
+
+## Límites comprobables
+
+- El código OMS Samsung publicado rechaza fabricated desde shell con
+  `Non-root shell cannot fabricate overlays`. El backend no evade esa política:
+  la prueba runtime decidirá DENIED/SUPPORTED/UNAVAILABLE. No se garantiza que
+  la alternativa sea utilizable en este firmware.
+- La firma plataforma de Shell aparece en AOSP; la firma real del teléfono se
+  comprueba en runtime. No se declara native SUPPORTED para el S25 sin ejecutarlo.
+- No hay persistencia artificial con daemon o watcher. Samsung conserva el par
+  nativo; la verificación acredita la ventana acotada, no prueba un reboot.
+- Reset de un motor originalmente desactivado admite registros SemWT nuevos
+  desactivados y espejos vacíos producidos por la API OEM, siempre que estado y
+  recursos efectivos originales estén restaurados. No destruye registros OEM.
+- Samsung aplica su paleta de forma global según el comportamiento de su API.
+  No se ha validado un escenario multiusuario/Secure Folder en dispositivo.
+
+## Archivos y tests
+
+Nuevos `core/SamsungEngineCoordinator.kt`, `core/SamsungResourceMapping.kt` y
+`engine/{SamsungFirmware,SamsungFirmwareMapping,SamsungFirmwareOverlays,
+SamsungEnginePreferences,SamsungGooglePalette,ShizukuPaletteEngine}.kt`.
+Integración en SamsungShizukuPaletteBridge, AIDL y ambos ShizukuConnection.
+Se conserva la transacción diagnóstica y todos sus tests como regresión.
+
+Tests nuevos: 14 del coordinador (allowed/denied, fallback, captura fallida,
+no-op, stale, rollback fallido/pending, reset, reemplazo, concurrencia,
+regresión temporal, GG ausente, validación); 3 de mapping; 5 Android de
+GG independiente, tuning, overrides, seeds secundarios y spec no compatible.
+La evidencia ejecutada está en el artifact Samsung-Bridge-Test-Results del
+workflow Samsung One UI Shizuku Bridge. CI ejecuta todos los tests y assembleDebug.
+
+Instalación: `scripts/reinstall-samsung-debug.sh "/ruta/ColorBlendr v3.0.1.apk"`
+hace uninstall, install -g y pm path, sin backup. No intenta eludir una firma
+incompatible con install -r. Este entorno no ejecutó esa instalación física.
+
+## Fuentes y auditoría previa
+
+La sección siguiente conserva el informe de 0aef998 como historial; sus
+limitaciones de implementación settings-only corresponden a aquella revisión,
+no al nuevo flujo descrito arriba.
+
 # Samsung bridge: auditoría y verificación acotada (2026-09-25)
 
 ## Estado de esta revisión

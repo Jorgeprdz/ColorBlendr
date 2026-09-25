@@ -123,7 +123,14 @@ internal class ShizukuPaletteEngine(
     override suspend fun verifyRestored(snapshot: String): Boolean {
         val saved = JSONObject(snapshot)
         val oldResources = saved.getJSONObject("resources").colorMap()
-        if (read(oldResources.keys) != oldResources || !sameSettings(saved.getJSONObject("settings"))) return false
+        val disabledNative = kind == SamsungEngineKind.NATIVE &&
+            saved.getJSONObject("settings").optString(SamsungPaletteTransaction.STATE) == "0"
+        // OEM disable may clear its persisted color mirrors while retaining last_palette.
+        // In the disabled case the authoritative state and original resolved resources
+        // establish restoration, rather than requiring stale mirrors to be resurrected.
+        val restoredSettings = if (disabledNative) gateway.get(SamsungPaletteTransaction.STATE) == "0"
+            else sameSettings(saved.getJSONObject("settings"))
+        if (read(oldResources.keys) != oldResources || !restoredSettings) return false
         return if (kind == SamsungEngineKind.NATIVE) {
             val oldPair = saved.getJSONObject("pair"); val current = rpc.call("nativeCapture")
             // Disabled engine can retain last_palette.txt. Restoring null palettes is the OEM disable API.
