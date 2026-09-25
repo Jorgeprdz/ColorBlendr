@@ -168,6 +168,9 @@ Estado comprobado al preparar la entrega: la cuenta conectada `Jorgeprdz` tiene
 `push=false` en `Mahmud0808/ColorBlendr`; `Jorgeprdz/ColorBlendr` devuelve 404.
 No hay credencial Git CLI ni herramienta conectada para crear forks.
 Se solicitó un fork escribible mientras continuaba el trabajo local.
+Commit de implementación local: `50a566eea7185f39626fd8d3f56a1b25af0588bd`.
+El intento de push sin interacción terminó con exit 128:
+`could not read Username for 'https://github.com': terminal prompts disabled`.
 **No hay todavía run CI, assembleDebug PASS ni APK construida para este cambio.**
 La ruta anterior es esperada, no un archivo entregado. No se sustituirá la APK
 por una de upstream ni se afirmará compilación sin evidencia.
