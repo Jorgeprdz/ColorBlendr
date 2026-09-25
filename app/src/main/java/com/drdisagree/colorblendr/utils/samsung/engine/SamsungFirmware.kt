@@ -67,7 +67,8 @@ internal class SamsungFirmware(private val serviceContext: Context?) {
             }
             val state = if (denied) "DENIED" else "UNAVAILABLE"
             Log.w("SamsungPaletteBridge", "op=$operation $state: ${cause.message}")
-            if (operation == "nativeApply") capabilities["native"] = capability(state, cause.toString())
+            if (operation == "nativeApply" || operation == "nativeProbe") capabilities["native"] = capability(state, cause.toString())
+            if (operation == "fabricatedProbe") capabilities["fabricated"] = capability(state, cause.toString())
             return JSONObject().put("status", state).put("error", cause.toString()).toString()
         } finally { Binder.restoreCallingIdentity(token) }
     }
