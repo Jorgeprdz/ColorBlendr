@@ -11,6 +11,8 @@ import org.json.JSONObject
 import kotlin.system.exitProcess
 
 class ShizukuConnection : IShizukuConnection.Stub {
+    private var samsungContext: Context? = null
+    private val samsungFirmware by lazy { com.drdisagree.colorblendr.utils.samsung.engine.SamsungFirmware(samsungContext) }
 
     companion object {
         private const val TAG = "ShizukuConnection"
@@ -24,6 +26,7 @@ class ShizukuConnection : IShizukuConnection.Stub {
     @Suppress("unused")
     @Keep
     constructor(context: Context) {
+        samsungContext = context
         Log.i(TAG, "Constructed with context: $context")
     }
 
@@ -127,6 +130,8 @@ class ShizukuConnection : IShizukuConnection.Stub {
     override fun run(command: String): String {
         return runChecked(command)[1]
     }
+
+    override fun samsungEngine(operation: String, payload: String): String = samsungFirmware.execute(operation, payload)
 
     override fun runChecked(command: String): Array<String> {
         // The Shizuku user service already runs as shell. Never probe for su.

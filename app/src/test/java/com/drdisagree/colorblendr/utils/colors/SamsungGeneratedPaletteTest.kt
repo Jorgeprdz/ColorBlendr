@@ -28,6 +28,7 @@ import com.drdisagree.colorblendr.data.domain.PreviewController
 import com.drdisagree.colorblendr.data.enums.MONET
 import com.drdisagree.colorblendr.utils.samsung.core.SamsungPalette
 import com.drdisagree.colorblendr.utils.samsung.SamsungShizukuPaletteBridge
+import com.drdisagree.colorblendr.utils.samsung.engine.SamsungGooglePalette
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -128,5 +129,49 @@ class SamsungGeneratedPaletteTest {
     @Test fun realMonochromeGenerationSetsGray() {
         setCurrentMonetStyle(MONET.MONOCHROMATIC)
         assertEquals("1", generated().grayFlag)
+    }
+
+    private fun googleBase(seed: Int, style: String): List<Int> {
+        require(style == "EXPRESSIVE")
+        return List(65) { index -> Color.rgb((40 + index + (seed and 7)) % 255, 100, 140) }
+    }
+    @Test fun googleUsesIndependentOemGeneratorWithSelectedSeedAndStyle() {
+        setColorSpecVersion(0)
+        var calls = 0
+        val gg = SamsungGooglePalette.generate { seed, style ->
+            calls++
+            assertEquals(Color.rgb(243, 237, 200), seed)
+            assertEquals("EXPRESSIVE", style)
+            googleBase(seed, style)
+        }
+        assertEquals(1, calls)
+        assertEquals(65, gg.size)
+        assertNotEquals(generated().colors, gg)
+    }
+    @Test fun sameTuningPipelineChangesGoogleAccentsWithoutChangingNeutrals() {
+        setColorSpecVersion(0)
+        setAccentSaturation(100); val normal = SamsungGooglePalette.generate(::googleBase)
+        setAccentSaturation(150); val tuned = SamsungGooglePalette.generate(::googleBase)
+        assertNotEquals(normal.take(39), tuned.take(39))
+        assertEquals(normal.drop(39), tuned.drop(39))
+    }
+    @Test fun explicitOverridesAlsoReachGoogleInsteadOfBeingLost() {
+        setColorSpecVersion(0)
+        setCurrentCustomStyle("test-google")
+        Prefs.putInt("system_accent2_300", -123456)
+        Prefs.putInt("system_neutral2_900", -765432)
+        val gg = SamsungGooglePalette.generate(::googleBase)
+        assertEquals(-123456, gg[18]); assertEquals(-765432, gg[63])
+    }
+    @Test fun secondaryAndTertiarySeedsAreGeneratedIndependentlyForGoogle() {
+        setColorSpecVersion(0)
+        setSecondaryColorValue(Color.RED); setTertiaryColorValue(Color.GREEN)
+        val seeds = mutableListOf<Int>()
+        SamsungGooglePalette.generate { seed, style -> seeds.add(seed); googleBase(seed, style) }
+        assertEquals(listOf(Color.rgb(243, 237, 200), Color.RED, Color.GREEN), seeds)
+    }
+    @Test(expected = IllegalStateException::class) fun unsupportedGoogleSpecIsExplicitFailure() {
+        setColorSpecVersion(1)
+        SamsungGooglePalette.generate(::googleBase)
     }
 }

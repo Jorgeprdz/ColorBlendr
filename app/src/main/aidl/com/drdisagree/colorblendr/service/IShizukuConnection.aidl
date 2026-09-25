@@ -9,4 +9,6 @@ interface IShizukuConnection {
     String run(String command) = 5;
     // [exit code, stdout, stderr]. Append-only to preserve existing transaction IDs.
     String[] runChecked(String command) = 6;
+    // Firmware API dispatch executes in UserService under its own shell identity.
+    String samsungEngine(String operation, String payload) = 7;
 }

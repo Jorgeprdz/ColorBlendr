@@ -56,6 +56,9 @@ class LegacyShizukuConnection : IShizukuConnection.Stub() {
 
     override fun run(command: String): String = exec(command).out
 
+    override fun samsungEngine(operation: String, payload: String): String = JSONObject()
+        .put("status", "UNAVAILABLE").put("error", "Samsung Binder engines require the Shizuku UserService; reconnect Shizuku").toString()
+
     override fun runChecked(command: String): Array<String> = exec(command).let {
         arrayOf(it.code.toString(), it.out, it.err)
     }

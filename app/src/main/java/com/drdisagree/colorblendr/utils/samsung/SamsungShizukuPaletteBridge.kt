@@ -22,6 +22,7 @@ import com.drdisagree.colorblendr.service.IShizukuConnection
 import com.drdisagree.colorblendr.utils.app.SystemUtil
 import com.drdisagree.colorblendr.utils.colors.ColorUtil.systemPaletteNames
 import com.drdisagree.colorblendr.utils.samsung.core.*
+import com.drdisagree.colorblendr.utils.samsung.engine.*
 import com.drdisagree.colorblendr.utils.shizuku.ShizukuUtil
 import com.drdisagree.colorblendr.utils.wallpaper.WallpaperColorUtil
 import kotlinx.coroutines.CancellationException
@@ -92,7 +93,7 @@ object SamsungShizukuPaletteBridge {
         if (!isSamsungDevice() || !isShizukuMode()) return null
         val user = Process.myUid() / 100000
         val gateway = ShizukuSamsungGateway(connection, user)
-        if (!probe(gateway)) return null
+        probe(gateway)
         val start = SystemClock.elapsedRealtime()
         activeTransaction = "${Process.myPid()}-${sequence.incrementAndGet()}"
         trace("T4 bridge begin seed=${getSeedColorValue()} style=${getCurrentMonetStyle()} manual=${customColorEnabled()} " +
@@ -106,10 +107,26 @@ object SamsungShizukuPaletteBridge {
             val sourceColors = WallpaperColorUtil.getWallpaperColorsFromSource(appContext)
             wallpaperGuard.recordVerified(before, wallpaperFingerprint(),
                 customColorEnabled() || (sourceColors != null && sourceColors == getWallpaperColorList()))
-            trace("expected mainSha=${SamsungPaletteObservation.sha(palette.serialized)} forG=unchanged-no-proven-generator")
+            val rpc = SamsungEngineRpc(connection, user, ::trace)
+            val google = if (rpc.probe("nativeProbe") == SamsungEngineCapability.SUPPORTED) {
+                runCatching { SamsungGooglePalette.generate(rpc::google) }
+                    .onFailure { trace("GG unavailable for selected configuration: ${it.message}") }.getOrNull()
+            } else null
+            trace("expected mainSha=${SamsungPaletteObservation.sha(palette.serialized)} ggSha=${SamsungPaletteObservation.sha(google?.toString())}")
             trace("T5 G Monet=${gateway.overlayEnabled(SamsungPaletteTransaction.G_MONET)}; T6 secure JSON skipped (Samsung authoritative)")
             trace("size=${palette.colors.size} A1_300=${rows[0][5]} A1_500=${rows[0][7]} A2_300=${rows[1][5]} A2_500=${rows[1][7]} A3_300=${rows[2][5]} N1_500=${rows[3][7]} N2_500=${rows[4][7]}")
-            SamsungPaletteTransaction(gateway, SamsungBackupPreferences(appContext, user), log = ::trace).apply(palette)
+            val store = SamsungEnginePreferences(appContext, user)
+            val preview = PreviewController.buildPreviewColors()
+            val roles = (preview.lightMap + preview.darkMap).filterKeys {
+                appContext.resources.getIdentifier(it, "color", "android") != 0
+            }
+            val engines = SamsungEngineKind.entries.map {
+                ShizukuPaletteEngine(it, rpc, gateway, store, SystemUtil.isDarkMode, roles, ::trace)
+            }
+            val backend = SamsungEngineCoordinator(engines, store, log = ::trace)
+                .apply(SamsungEngineRequest(palette.colors, google))
+            support.value = true
+            trace("backend finally used=$backend")
             RefreshCoordinator.triggerRefresh()
             trace("apply verified")
             return true
@@ -122,13 +139,21 @@ object SamsungShizukuPaletteBridge {
     suspend fun removeIfOwned(connection: IShizukuConnection): Boolean? {
         if (!isSamsungDevice() || !isShizukuMode()) return null
         val user = Process.myUid() / 100000
-        val backups = SamsungBackupPreferences(appContext, user)
-        if (backups.load() == null) return null
+        val store = SamsungEnginePreferences(appContext, user)
         activeTransaction = "${Process.myPid()}-${sequence.incrementAndGet()}-reset"
         try {
-            val result = SamsungPaletteTransaction(
-                ShizukuSamsungGateway(connection, user), backups, log = ::trace
-            ).restore()
+            val rpc = SamsungEngineRpc(connection, user, ::trace)
+            val gateway = ShizukuSamsungGateway(connection, user)
+            val engines = SamsungEngineKind.entries.map {
+                ShizukuPaletteEngine(it, rpc, gateway, store, SystemUtil.isDarkMode, emptyMap(), ::trace)
+            }
+            val result = if (store.load() != null) SamsungEngineCoordinator(engines, store, log = ::trace).reset() else {
+                // No engine journal: clean only our fixed IDs (e.g. after reinstall).
+                // Never fall through to the old secure JSON reset on this route.
+                val present = rpc.call("fabricatedPresent")
+                if (present.keys().asSequence().any { present.getString(it) != "absent" }) rpc.call("fabricatedRemove")
+                true
+            }
             RefreshCoordinator.triggerRefresh()
             return result
         } finally {
