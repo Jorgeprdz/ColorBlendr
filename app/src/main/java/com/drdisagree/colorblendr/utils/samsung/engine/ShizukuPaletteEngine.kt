@@ -55,6 +55,8 @@ internal class ShizukuPaletteEngine(
             state.put("payload", store.fabricatedPayload ?: JSONObject.NULL).put("presence", presence)
         }
         before = state
+        log("backend=$kind snapshot mainSha=${SamsungPaletteObservation.sha(state.getJSONObject("settings").optString(SamsungPaletteTransaction.COLOR))} " +
+            "ggSha=${SamsungPaletteObservation.sha(state.getJSONObject("settings").optString(SamsungPaletteTransaction.FOR_G))} state=${state.getJSONObject("settings").optString(SamsungPaletteTransaction.STATE)}")
         return state.toString()
     }
 
@@ -86,11 +88,14 @@ internal class ShizukuPaletteEngine(
         val coherent = if (kind == SamsungEngineKind.NATIVE) {
             val pair = rpc.call("nativeCapture")
             val states = rpc.call("nativeOverlayStates")
+            val mirrors = settings()
+            log("native sample mainSha=${SamsungPaletteObservation.sha(mirrors.optString(SamsungPaletteTransaction.COLOR))} " +
+                "ggSha=${SamsungPaletteObservation.sha(mirrors.optString(SamsungPaletteTransaction.FOR_G))} state=${mirrors.optString(SamsungPaletteTransaction.STATE)} overlays=$states")
             pair.list("main") == request.main && pair.list("google") == request.google &&
-                parsePalette(gateway.get(SamsungPaletteTransaction.COLOR)) == request.main &&
-                parsePalette(gateway.get(SamsungPaletteTransaction.FOR_G)) == request.google &&
-                gateway.get(SamsungPaletteTransaction.STATE) == "1" &&
-                gateway.get(SamsungPaletteTransaction.GRAY) == (if (isGray(request.main)) "1" else "0") &&
+                parsePalette(mirrors.optString(SamsungPaletteTransaction.COLOR)) == request.main &&
+                parsePalette(mirrors.optString(SamsungPaletteTransaction.FOR_G)) == request.google &&
+                mirrors.optString(SamsungPaletteTransaction.STATE) == "1" &&
+                mirrors.optString(SamsungPaletteTransaction.GRAY) == (if (isGray(request.main)) "1" else "0") &&
                 SamsungPaletteTransaction.requiredOverlays.all { states.optBoolean(it, false) }
         } else {
             val presence = rpc.call("fabricatedPresent")
