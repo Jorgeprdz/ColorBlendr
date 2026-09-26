@@ -11,4 +11,6 @@ interface IShizukuConnection {
     String[] runChecked(String command) = 6;
     // Firmware API dispatch executes in UserService under its own shell identity.
     String samsungEngine(String operation, String payload) = 7;
+    // Bounds diagnostic output before returning large overlay/settings dumps over Binder.
+    String[] runCheckedLimited(String command, int maxChars) = 8;
 }

@@ -29,6 +29,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicLong
 
@@ -36,6 +37,8 @@ object SamsungShizukuPaletteBridge {
     private const val TAG = "SamsungPaletteBridge"
     private val support = MutableStateFlow(false)
     val supported = support.asStateFlow()
+    private val traceState = MutableStateFlow<List<String>>(emptyList())
+    val diagnosticLog = traceState.asStateFlow()
     private val wallpaperGuard = SamsungWallpaperGuard()
     private val sequence = AtomicLong()
     @Volatile private var activeTransaction: String = "none"
@@ -49,7 +52,11 @@ object SamsungShizukuPaletteBridge {
     }
 
     fun trace(event: String) {
-        if (BuildConfig.DEBUG) Log.d(TAG, "t=${SystemClock.elapsedRealtime()} tx=$activeTransaction $event")
+        if (BuildConfig.DEBUG) {
+            val line = "t=" + SystemClock.elapsedRealtime() + " tx=" + activeTransaction + " " + event
+            traceState.update { (it + line).takeLast(500) }
+            Log.d(TAG, line)
+        }
     }
 
     /** IO-only capability probe; called on screen entry and again at every apply. */
@@ -73,10 +80,13 @@ object SamsungShizukuPaletteBridge {
         }
     }
 
-    private suspend fun probe(gateway: ShizukuSamsungGateway): Boolean {
+    private suspend fun probe(
+        gateway: ShizukuSamsungGateway,
+        shizukuModeEnabled: Boolean = isShizukuMode()
+    ): Boolean {
         return try {
             val state = gateway.get(SamsungPaletteTransaction.STATE)
-            SamsungPalette.isEligible(Build.MANUFACTURER, isShizukuMode(), true, state)
+            SamsungPalette.isEligible(Build.MANUFACTURER, shizukuModeEnabled, true, state)
                 .also { support.value = it; trace("Samsung detected=$it sdk=${Build.VERSION.SDK_INT} build=${Build.DISPLAY} method=SHIZUKU") }
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) {
@@ -89,11 +99,21 @@ object SamsungShizukuPaletteBridge {
     }
 
     /** null = unsupported, false = failed (do NOT then run another theme pipeline). */
-    suspend fun applyIfSupported(connection: IShizukuConnection): Boolean? {
-        if (!isSamsungDevice() || !isShizukuMode()) return null
+    suspend fun applyIfSupported(connection: IShizukuConnection): Boolean? =
+        applySamsungPalette(connection, requireSelectedShizukuMode = true)
+
+    /** An explicit lab action may use Shizuku without changing the app-wide work mode. */
+    suspend fun applyFromSystemUiLab(connection: IShizukuConnection): Boolean? =
+        applySamsungPalette(connection, requireSelectedShizukuMode = false)
+
+    private suspend fun applySamsungPalette(
+        connection: IShizukuConnection,
+        requireSelectedShizukuMode: Boolean
+    ): Boolean? {
+        if (!isSamsungDevice() || (requireSelectedShizukuMode && !isShizukuMode())) return null
         val user = Process.myUid() / 100000
         val gateway = ShizukuSamsungGateway(connection, user)
-        probe(gateway)
+        probe(gateway, shizukuModeEnabled = true)
         val start = SystemClock.elapsedRealtime()
         activeTransaction = "${Process.myPid()}-${sequence.incrementAndGet()}"
         trace("T4 bridge begin seed=${getSeedColorValue()} style=${getCurrentMonetStyle()} manual=${customColorEnabled()} " +
@@ -136,8 +156,17 @@ object SamsungShizukuPaletteBridge {
         }
     }
 
-    suspend fun removeIfOwned(connection: IShizukuConnection): Boolean? {
-        if (!isSamsungDevice() || !isShizukuMode()) return null
+    suspend fun removeIfOwned(connection: IShizukuConnection): Boolean? =
+        removeSamsungPalette(connection, requireSelectedShizukuMode = true)
+
+    suspend fun removeFromSystemUiLab(connection: IShizukuConnection): Boolean? =
+        removeSamsungPalette(connection, requireSelectedShizukuMode = false)
+
+    private suspend fun removeSamsungPalette(
+        connection: IShizukuConnection,
+        requireSelectedShizukuMode: Boolean
+    ): Boolean? {
+        if (!isSamsungDevice() || (requireSelectedShizukuMode && !isShizukuMode())) return null
         val user = Process.myUid() / 100000
         val store = SamsungEnginePreferences(appContext, user)
         activeTransaction = "${Process.myPid()}-${sequence.incrementAndGet()}-reset"

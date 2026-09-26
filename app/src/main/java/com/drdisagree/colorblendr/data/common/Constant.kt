@@ -59,6 +59,7 @@ object Constant {
     const val DARKER_LAUNCHER_ICONS = "darkerLauncherIcons"
     const val SEMI_TRANSPARENT_LAUNCHER_ICONS = "semiTransparentLauncherIcons"
     const val FORCE_PITCH_BLACK_SETTINGS = "forcePitchBlackSettings"
+    const val SYSTEMUI_LAB_ENABLED = "systemUiInjectionLabEnabled"
     const val MONET_ACCURATE_SHADES = "monetAccurateShades"
     const val MONET_PITCH_BLACK_THEME = "monetPitchBlackTheme"
     const val MONET_SEED_COLOR_ENABLED = "monetSeedColorEnabled"

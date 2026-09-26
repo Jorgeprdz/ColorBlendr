@@ -96,6 +96,7 @@ import com.drdisagree.colorblendr.ui.compose.screens.privacypolicy.PrivacyPolicy
 import com.drdisagree.colorblendr.ui.compose.screens.settings.SettingsAdvancedScreen
 import com.drdisagree.colorblendr.ui.compose.screens.settings.SettingsScreen
 import com.drdisagree.colorblendr.ui.compose.screens.styles.StylesScreen
+import com.drdisagree.colorblendr.ui.compose.screens.systemui.SystemUiInjectionLabScreen
 import com.drdisagree.colorblendr.ui.compose.screens.theme.ThemeScreen
 import com.drdisagree.colorblendr.ui.compose.theme.ColorBlendrTheme
 import com.drdisagree.colorblendr.ui.compose.utils.AdaptivePreviews
@@ -476,9 +477,13 @@ fun HomeScreen(
                                 SettingsAdvancedScreen(
                                     onNavigateToPerAppTheme = {
                                         nestedNavController.navigateSingleTop(Routes.PER_APP_THEME)
+                                    },
+                                    onNavigateToSystemUiLab = {
+                                        nestedNavController.navigateSingleTop(Routes.SYSTEMUI_LAB)
                                     }
                                 )
                             }
+                            screen(Routes.SYSTEMUI_LAB) { SystemUiInjectionLabScreen() }
                             screen(Routes.COMMUNITY) {
                                 CommunityScreen(
                                     onThemeClick = { themeId ->

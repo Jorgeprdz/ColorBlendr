@@ -48,6 +48,7 @@ import com.drdisagree.colorblendr.data.common.Constant.MONET_SEED_COLOR_ENABLED
 import com.drdisagree.colorblendr.data.common.Constant.MONET_TERTIARY_COLOR
 import com.drdisagree.colorblendr.data.common.Constant.PIXEL_LAUNCHER
 import com.drdisagree.colorblendr.data.common.Constant.SCREEN_OFF_UPDATE_COLORS
+import com.drdisagree.colorblendr.data.common.Constant.SYSTEMUI_LAB_ENABLED
 import com.drdisagree.colorblendr.data.common.Constant.SEMI_TRANSPARENT_LAUNCHER_ICONS
 import com.drdisagree.colorblendr.data.common.Constant.TASKER_INTEGRATION
 import com.drdisagree.colorblendr.data.common.Utilities.customColorEnabled
@@ -76,6 +77,7 @@ import com.drdisagree.colorblendr.data.common.Utilities.setSemiTransparentLaunch
 import com.drdisagree.colorblendr.data.common.Utilities.setTaskerIntegrationEnabled
 import com.drdisagree.colorblendr.data.common.Utilities.setTertiaryColorValue
 import com.drdisagree.colorblendr.data.common.Utilities.taskerIntegrationEnabled
+import com.drdisagree.colorblendr.data.config.Prefs
 import com.drdisagree.colorblendr.data.common.Utilities.updateColorAppliedTimestamp
 import com.drdisagree.colorblendr.data.domain.AppScope
 import com.drdisagree.colorblendr.data.domain.PreviewController
@@ -109,7 +111,8 @@ private const val TARGET_TERTIARY = "tertiary"
 
 @Composable
 fun SettingsAdvancedScreen(
-    onNavigateToPerAppTheme: () -> Unit = {}
+    onNavigateToPerAppTheme: () -> Unit = {},
+    onNavigateToSystemUiLab: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val resources = LocalResources.current
@@ -131,6 +134,9 @@ fun SettingsAdvancedScreen(
     var darkerIcons by rememberPrefState(DARKER_LAUNCHER_ICONS) { darkerLauncherIconsEnabled() }
     var semiTransparentIcons by rememberPrefState(SEMI_TRANSPARENT_LAUNCHER_ICONS) { semiTransparentLauncherIconsEnabled() }
     var pitchBlackWorkaround by rememberPrefState(FORCE_PITCH_BLACK_SETTINGS) { forcePitchBlackSettingsEnabled() }
+    var systemUiLabEnabled by rememberPrefState(SYSTEMUI_LAB_ENABLED) {
+        Prefs.getBoolean(SYSTEMUI_LAB_ENABLED, false)
+    }
 
     fun updateColors() {
         scope.launch {
@@ -405,6 +411,28 @@ fun SettingsAdvancedScreen(
                             setForcePitchBlackSettingsEnabled(isChecked)
                             updateColors()
                         }
+                    )
+                }
+
+                SwitchItem(
+                    title = stringResource(R.string.systemui_lab_enable_title),
+                    summary = stringResource(R.string.systemui_lab_enable_desc),
+                    icon = rememberVectorPainter(Icons.Rounded.AutoAwesome),
+                    checked = systemUiLabEnabled,
+                    position = WidgetPosition.Top,
+                    onCheckedChange = { enabled ->
+                        systemUiLabEnabled = enabled
+                        Prefs.putBoolean(SYSTEMUI_LAB_ENABLED, enabled)
+                    }
+                )
+                if (systemUiLabEnabled) {
+                    MenuItem(
+                        title = stringResource(R.string.systemui_lab_title),
+                        summary = stringResource(R.string.systemui_lab_desc),
+                        icon = rememberVectorPainter(Icons.Rounded.SettingsSuggest),
+                        showEndArrow = true,
+                        position = WidgetPosition.Bottom,
+                        onClick = onNavigateToSystemUiLab
                     )
                 }
             }

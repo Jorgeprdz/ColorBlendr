@@ -3,7 +3,9 @@ name: Samsung One UI Shizuku Bridge
 on:
   workflow_dispatch:
   push:
-    branches: [fix/samsung-oneui-shizuku-palette-bridge]
+    branches:
+      - fix/samsung-oneui-shizuku-palette-bridge
+      - feature/systemui-rish-injection
   pull_request:
 
 permissions:
@@ -32,14 +34,14 @@ jobs:
           packages: platform-tools
       - name: Test independent JVM bridge core
         run: ./gradlew -p bridge-tests test --no-daemon --max-workers=2
-      - name: Test real palette generator and Android integration
+      - name: Test Android unit suite including SystemUI capability analysis
         run: ./gradlew :app:testDebugUnitTest --no-daemon --max-workers=2
       - name: Assemble debug APK
         run: ./gradlew assembleDebug --no-daemon --max-workers=2
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ColorBlendr-Samsung-OneUI-Shizuku-Debug
+          name: ColorBlendr-SystemUI-Injection-Lab-Debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
       - name: Upload test evidence

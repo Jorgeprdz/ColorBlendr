@@ -6,6 +6,23 @@
     <string name="theme">Tema</string>
     <string name="styles">Estilos</string>
     <string name="settings">Ajustes</string>
+    <string name="systemui_lab_enable_title">Activar SystemUI Injection Lab</string>
+    <string name="systemui_lab_enable_desc">Diagnóstico experimental y controles de paleta del sistema mediante Shizuku</string>
+    <string name="systemui_lab_title">SystemUI Injection Lab</string>
+    <string name="systemui_lab_desc">Inspecciona capacidades de color y prueba una aplicación reversible de la paleta</string>
+    <string name="systemui_lab_warning">Experimental. El fabricante puede bloquear cambios en SystemUI. Cada aplicación se verifica y se revierte si no tiene un efecto observable.</string>
+    <string name="systemui_lab_probe">Analizar capacidades</string>
+    <string name="systemui_lab_apply">Aplicar paleta actual</string>
+    <string name="systemui_lab_revert">Revertir cambios de SystemUI</string>
+    <string name="systemui_lab_export">Exportar registro de diagnóstico</string>
+    <string name="systemui_lab_no_probe">Ejecuta el análisis para inspeccionar este dispositivo.</string>
+    <string name="systemui_lab_no_shizuku">Shizuku no está disponible o ColorBlendr no tiene permiso.</string>
+    <string name="systemui_lab_apply_confirm">Se intentará cambiar los colores del sistema mediante Shizuku. La app verificará el recurso efectivo y restaurará la configuración anterior si la verificación falla.</string>
+    <string name="systemui_lab_revert_confirm">¿Restaurar la copia guardada antes de aplicar la paleta del sistema de ColorBlendr?</string>
+    <string name="systemui_lab_capabilities">Capacidades</string>
+    <string name="systemui_lab_commands">Resultados de comandos</string>
+    <string name="systemui_lab_preview">Vista previa de la paleta</string>
+    <string name="systemui_lab_strategies">Intentos de estrategia</string>
     <!-- Colors -->
     <string name="wallpaper_colors">Colores de fondo de pantalla</string>
     <string name="basic_colors">Colores básicos</string>

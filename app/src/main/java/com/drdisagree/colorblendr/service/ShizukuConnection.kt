@@ -145,4 +145,11 @@ class ShizukuConnection : IShizukuConnection.Stub {
         reader.join()
         return arrayOf(code.toString(), stdout.trimEnd('\n'), stderr.trimEnd('\n'))
     }
+
+    override fun runCheckedLimited(command: String, maxChars: Int): Array<String> {
+        val result = runChecked(command)
+        val limit = maxChars.coerceIn(1, 32_000)
+        fun String.capped() = if (length <= limit) this else take(limit) + "\n<output truncated at $limit characters>"
+        return arrayOf(result[0], result[1].capped(), result[2].capped())
+    }
 }

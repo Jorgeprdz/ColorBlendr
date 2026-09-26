@@ -132,6 +132,23 @@
     <string name="semitransparent_launcher_desc">Apply a semi-transparent style to pixel launcher</string>
     <string name="pitch_black_settings_workaround_title">Pitch black settings workaround</string>
     <string name="pitch_black_settings_workaround_desc">Darken the settings background color; causes side effects</string>
+    <string name="systemui_lab_enable_title">Enable SystemUI Injection Lab</string>
+    <string name="systemui_lab_enable_desc">Experimental Shizuku diagnostics and system palette controls</string>
+    <string name="systemui_lab_title">SystemUI Injection Lab</string>
+    <string name="systemui_lab_desc">Inspect system color capabilities and try a reversible palette apply</string>
+    <string name="systemui_lab_warning">Experimental. OEM policy may block SystemUI changes. Every apply is verified and reverted if it has no observable effect.</string>
+    <string name="systemui_lab_probe">Run capability probe</string>
+    <string name="systemui_lab_apply">Apply current palette</string>
+    <string name="systemui_lab_revert">Revert SystemUI changes</string>
+    <string name="systemui_lab_export">Export diagnostic log</string>
+    <string name="systemui_lab_no_probe">Run the capability probe to inspect this device.</string>
+    <string name="systemui_lab_no_shizuku">Shizuku is unavailable or ColorBlendr has not been granted permission.</string>
+    <string name="systemui_lab_apply_confirm">This will attempt to change system colors using Shizuku. The app will verify the effective resource and restore the previous settings if verification fails.</string>
+    <string name="systemui_lab_revert_confirm">Restore the snapshot saved before ColorBlendr applied its system palette?</string>
+    <string name="systemui_lab_capabilities">Capabilities</string>
+    <string name="systemui_lab_commands">Command results</string>
+    <string name="systemui_lab_preview">Palette preview</string>
+    <string name="systemui_lab_strategies">Strategy attempts</string>
 
     <!-- Privacy policy -->
     <string name="privacy_policy">Privacy policy</string>
