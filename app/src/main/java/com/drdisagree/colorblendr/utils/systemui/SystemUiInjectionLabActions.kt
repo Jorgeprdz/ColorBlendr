@@ -2,7 +2,7 @@ package com.drdisagree.colorblendr.utils.systemui
 
 import android.content.Context
 import android.os.Build
-import android.os.UserHandle
+import android.os.Process
 import com.drdisagree.colorblendr.data.common.Constant.THEME_CUSTOMIZATION_OVERLAY_PACKAGES
 import com.drdisagree.colorblendr.data.domain.PreviewController
 import com.drdisagree.colorblendr.extension.ThemeOverlayPackage
@@ -90,7 +90,7 @@ internal class SystemUiInjectionLabActions(context: Context) {
         if (journal.getBoolean(KEY_PENDING, false)) {
             return result(SystemUiProbeStatus.BLOCKED, "theme_customization_overlay_packages", "A prior snapshot is pending; revert it before another apply")
         }
-        val userId = UserHandle.myUserId()
+        val userId = Process.myUid() / 100_000
         val beforeSettingResult = command(connection, "settings --user $userId get secure $THEME_CUSTOMIZATION_OVERLAY_PACKAGES")
         if (beforeSettingResult.exitCode != 0) return fromCommand("theme_customization_overlay_packages", beforeSettingResult)
         val original = beforeSettingResult.stdout.trim().takeUnless { it == "null" }
@@ -149,7 +149,7 @@ internal class SystemUiInjectionLabActions(context: Context) {
             }
         }
         val restored = restoreGenericSnapshot(connection)
-        result(
+        return result(
             if (restored) SystemUiProbeStatus.BLOCKED else SystemUiProbeStatus.FAILED,
             "ThemeCustomizationStrategy",
             if (restored) "Setting was not observably applied to the framework accent; previous setting restored" else "Apply verification failed and rollback remains pending",
@@ -166,7 +166,7 @@ internal class SystemUiInjectionLabActions(context: Context) {
         if (!journal.getBoolean(KEY_PENDING, false)) {
             return result(SystemUiProbeStatus.UNSUPPORTED, "rollback", "No ColorBlendr snapshot is pending")
         }
-        val userId = UserHandle.myUserId()
+        val userId = Process.myUid() / 100_000
         val current = command(connection, "settings --user $userId get secure $THEME_CUSTOMIZATION_OVERLAY_PACKAGES")
         if (current.exitCode != 0) return fromCommand("rollback guard", current)
         if (!SystemUiRollbackPolicy.mayRestore(current.stdout.trim(), journal.getString(KEY_APPLIED, null))) {
@@ -181,7 +181,7 @@ internal class SystemUiInjectionLabActions(context: Context) {
 
     private suspend fun restoreGenericSnapshot(connection: IShizukuConnection): Boolean {
         if (!journal.getBoolean(KEY_PENDING, false)) return true
-        val userId = UserHandle.myUserId()
+        val userId = Process.myUid() / 100_000
         val wasNull = journal.getBoolean(KEY_ORIGINAL_WAS_NULL, true)
         val original = journal.getString(KEY_ORIGINAL, "").orEmpty()
         val expectedOriginal = if (wasNull) "null" else original

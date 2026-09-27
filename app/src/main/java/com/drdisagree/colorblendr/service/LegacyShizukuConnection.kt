@@ -63,6 +63,12 @@ class LegacyShizukuConnection : IShizukuConnection.Stub() {
         arrayOf(it.code.toString(), it.out, it.err)
     }
 
+    override fun runCheckedLimited(command: String, maxChars: Int): Array<String> = runChecked(command).let {
+        val limit = maxChars.coerceIn(1, 32_000)
+        fun String.capped() = if (length <= limit) this else take(limit) + "\n<output truncated at $limit characters>"
+        arrayOf(it[0], it[1].capped(), it[2].capped())
+    }
+
     private fun exec(command: String): ShellResult {
         val binder = Shizuku.getBinder()
             ?: throw IllegalStateException("Shizuku binder is not available")

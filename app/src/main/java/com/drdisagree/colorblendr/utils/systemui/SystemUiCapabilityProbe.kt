@@ -1,7 +1,7 @@
 package com.drdisagree.colorblendr.utils.systemui
 
 import android.os.Build
-import android.os.UserHandle
+import android.os.Process
 import com.drdisagree.colorblendr.provider.ShizukuConnectionProvider
 import com.drdisagree.colorblendr.service.IShizukuConnection
 import com.drdisagree.colorblendr.utils.shizuku.ShizukuUtil
@@ -44,7 +44,7 @@ internal class SystemUiCapabilityProbe {
             ?: return@withContext SystemUiProbeReport(device, "Shizuku active, but shell UserService did not connect", emptyList())
 
         val runner = ShizukuShellCommandRunner(connection)
-        val results = SystemUiCapabilityAnalysis.commandPlan(UserHandle.myUserId()).map(runner::run)
+        val results = SystemUiCapabilityAnalysis.commandPlan(Process.myUid() / 100_000).map(runner::run)
         val uid = results.firstOrNull { it.command == "id" }?.let {
             SystemUiCapabilityAnalysis.parseUid(it.stdout)
         }
