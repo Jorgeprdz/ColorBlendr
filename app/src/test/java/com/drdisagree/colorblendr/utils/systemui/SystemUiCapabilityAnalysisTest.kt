@@ -48,7 +48,7 @@ class SystemUiCapabilityAnalysisTest {
 
     @Test fun commandPlanUsesValidLookupSyntaxAndOnlyReadCommands() {
         val commands = SystemUiCapabilityAnalysis.commandPlan(0)
-        assertTrue(commands.contains("cmd overlay lookup --user 0 com.drdisagree.colorblendr android:color/system_accent1_500"))
+        assertTrue(commands.contains("cmd overlay lookup --user 0 android android:color/system_accent1_500"))
         assertTrue(commands.contains("cmd overlay lookup --user 0 com.android.systemui com.android.systemui:color/qs_tile_round_background_on"))
         assertFalse(commands.any { it.startsWith("settings put") || it.startsWith("cmd overlay enable") })
     }
